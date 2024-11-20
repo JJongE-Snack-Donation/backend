@@ -1,0 +1,93 @@
+swagger: "2.0"
+info:
+  title: 쫑이까까후원재단 API
+  version: 1.0.0
+  description: 멸종위기종 보호를 위한 REST API 문서.
+
+tags:
+  - name: Admin Login
+    description: 관리자 로그인 관련 API
+  - name: User Registration
+    description: 사용자 회원가입 관련 API
+
+paths:
+  /admin/login:
+    post:
+      summary: 관리자 로그인
+      tags:
+        - Admin Login
+      consumes:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          description: 로그인 데이터 (username, password)
+          required: true
+          schema:
+            type: object
+            properties:
+              username:
+                type: string
+                example: "admin"
+              password:
+                type: string
+                example: "password"
+      responses:
+        200:
+          description: Login successful
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Login successful"
+              token:
+                type: string
+                example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+        401:
+          description: Invalid credentials
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Invalid credentials"
+
+  /register:
+    post:
+      summary: 사용자 회원가입
+      tags:
+        - User Registration
+      consumes:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          description: 회원가입 데이터 (username, password)
+          required: true
+          schema:
+            type: object
+            properties:
+              username:
+                type: string
+                example: "user"
+              password:
+                type: string
+                example: "password"
+      responses:
+        201:
+          description: User registered successfully
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "User registered successfully"
+        400:
+          description: User already exists
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "User already exists"
