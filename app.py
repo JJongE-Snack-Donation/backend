@@ -1,11 +1,6 @@
-from flask_cors import CORS
-from flask import Flask
+from modules import create_app
 
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Hello, World!" 
+app = create_app()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True)
