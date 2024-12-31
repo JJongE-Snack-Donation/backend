@@ -50,7 +50,7 @@ def get_images(is_classified=None, page=1, per_page=50):
     Parameters:
     - is_classified: True/False/None (전체)
     - page: 페이지 번호 (default: 1)
-    - per_page: 페이지당 이미지 수 (default: 50)
+    - per_page: 페이지당 이미지 수 (default: 12)
     """
     try:
         query = {}

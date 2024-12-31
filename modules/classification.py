@@ -21,7 +21,7 @@ def list_images():
     query parameters:
     - classified: true/false (optional)
     - page: 페이지 번호 (default: 1)
-    - per_page: 페이지당 이미지 수 (default: 50)
+    - per_page: 페이지당 이미지 수 (default: 12)
     """
     # 쿼리 파라미터 파싱
     is_classified = request.args.get('classified', default=None)
@@ -29,7 +29,7 @@ def list_images():
         is_classified = is_classified.lower() == 'true'
     
     page = request.args.get('page', default=1, type=int)
-    per_page = request.args.get('per_page', default=50, type=int)
+    per_page = request.args.get('per_page', default=12, type=int)
     
     # 이미지 조회
     result = get_images(is_classified, page, per_page)
