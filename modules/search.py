@@ -29,7 +29,7 @@ def search_images():
             
             # 페이지네이션
             'page': int(request.args.get('page', 1)),
-            'per_page': int(request.args.get('per_page', 50))
+            'per_page': int(request.args.get('per_page', 12))
         }
         
         result = search_images_db(search_params)
