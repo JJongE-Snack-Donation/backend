@@ -1,13 +1,18 @@
 from flask import Flask
 from flask_jwt_extended import JWTManager
 from flasgger import Swagger
+from datetime import timedelta
 from .database import init_db
 from .admin_login import admin_login_bp
 from .register import register_bp
+from .classification import classification_bp
+from .search import search_bp
+from .image_move import image_move_bp 
 
 def create_app():
     app = Flask(__name__)
     app.config['JWT_SECRET_KEY'] = 'JJ0Ng3'
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=60)
 
      # Flasgger 기본 설정
     app.config['SWAGGER'] = {
@@ -37,5 +42,7 @@ def create_app():
     # Blueprint 등록
     app.register_blueprint(admin_login_bp)
     app.register_blueprint(register_bp)
-
+    app.register_blueprint(classification_bp)
+    app.register_blueprint(search_bp)
+    app.register_blueprint(image_move_bp)
     return app

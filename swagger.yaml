@@ -2,7 +2,7 @@ swagger: "2.0"
 info:
   title: 쫑이까까후원재단 API
   version: 1.0.0
-  description: 멸종위기종 보호를 위한 REST API 문서.
+  description: 멸종위기종 보호를 위한 REST API 문서
 
 tags:
   - name: Admin Login
@@ -91,3 +91,403 @@ paths:
               message:
                 type: string
                 example: "User already exists"
+  /upload:
+    post:
+      tags:
+        - Upload
+      summary: 이미지 파일 업로드 및 EXIF 데이터 처리
+      description: |
+        다중 이미지 파일을 업로드하고 EXIF 데이터를 추출하여 MongoDB에 저장합니다.
+        - 지원 파일 형식: jpg
+        - 최대 파일 크기: 10MB
+        - 썸네일 크기: 200x200
+      consumes:
+        - multipart/form-data
+      parameters:
+        - in: formData
+          name: files
+          type: array
+          items:
+            type: file
+          required: true
+          description: 업로드할 이미지 파일들
+        - in: formData
+          name: project_info
+          type: object
+          required: true
+          properties:
+            _id:
+              type: string
+              example: "project123"
+            name:
+              type: string
+              example: "야생동물 프로젝트"
+            id:
+              type: string
+              example: "WLP001"
+        - in: formData
+          name: analysis_folder
+          type: string
+          required: true
+          example: "analysis_20240101"
+        - in: formData
+          name: session_id
+          type: string
+          required: true
+          example: "session_xyz789"
+      responses:
+        200:
+          description: 파일 업로드 성공
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "파일 업로드 성공"
+              uploaded_count:
+                type: integer
+                example: 5
+        400:
+          description: 잘못된 요청 (파일 누락, 잘못된 형식, 파일 크기 초과 등)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "파일이 없습니다"
+        500:
+          description: 서버 오류 (이미지 처리 실패, DB 저장 실패 등)
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "서버 오류가 발생했습니다"
+
+  /images:
+    get:
+      tags:
+        - Images
+      summary: 이미지 목록 조회
+      parameters:
+        - in: query
+          name: classified
+          type: boolean
+          description: 분류/미분류 이미지 필터
+        - in: query
+          name: page
+          type: integer
+          default: 1
+          description: 페이지 번호
+        - in: query
+          name: per_page
+          type: integer
+          default: 50
+          description: 페이지당 이미지 수
+      responses:
+        200:
+          description: 이미지 목록 조회 성공
+          schema:
+            type: object
+            properties:
+              images:
+                type: array
+                items:
+                  $ref: '#/definitions/ImageData'
+              total:
+                type: integer
+              page:
+                type: integer
+              per_page:
+                type: integer
+              total_pages:
+                type: integer
+
+  /classified-images/{image_id}:
+    get:
+      tags:
+        - Images
+      summary: 분류된 이미지 상세 정보 조회
+      parameters:
+        - in: path
+          name: image_id
+          required: true
+          type: string
+          description: MongoDB ObjectId
+      responses:
+        200:
+          description: 이미지 상세 정보
+          schema:
+            $ref: '#/definitions/ClassifiedImage'
+    
+    put:
+      tags:
+        - Images
+      summary: 분류된 이미지 정보 수정
+      parameters:
+        - in: path
+          name: image_id
+          required: true
+          type: string
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - Infos
+              - Count
+              - BestClass
+            properties:
+              Infos:
+                type: array
+                items:
+                  $ref: '#/definitions/ClassificationInfo'
+              Count:
+                type: integer
+              BestClass:
+                type: string
+              ProjectInfo:
+                $ref: '#/definitions/ProjectInfo'
+
+  /images/move:
+    post:
+      tags:
+        - Images
+      summary: 이미지 분류 상태 변경
+      description: 이미지의 분류/미분류 상태를 변경합니다
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              image_ids:
+                type: array
+                items:
+                  type: string
+                description: 이동할 이미지 ID 목록
+              to_classified:
+                type: boolean
+                description: 분류 상태로 이동 여부 (true: 분류됨, false: 미분류)
+            required:
+              - image_ids
+              - to_classified
+      responses:
+        200:
+          description: 이미지 이동 성공
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Images moved successfully"
+              moved_count:
+                type: integer
+                description: 이동된 이미지 수
+        400:
+          description: 잘못된 요청
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "No images selected"
+
+definitions:
+  ProcessedImage:
+    type: object
+    properties:
+      FileName:
+        type: string
+        example: "20240101-123456s1.jpg"
+      FilePath:
+        type: string
+        example: "./mnt/project123/analysis_20240101/source/20240101-123456s1.jpg"
+      OriginalFileName:
+        type: string
+        example: "IMG_001.jpg"
+      ThumnailPath:
+        type: string
+        example: "./mnt/project123/analysis_20240101/thumbnail/thum_20240101-123456s1.jpg"
+      SerialNumber:
+        type: string
+        example: "CAM001"
+      UserLabel:
+        type: string
+        example: "UNKNOWN"
+      DateTimeOriginal:
+        type: object
+        properties:
+          $date:
+            type: string
+            format: date-time
+            example: "2024-01-01T12:34:56.000Z"
+      ProjectInfo:
+        $ref: '#/definitions/ProjectInfo'
+      AnalysisFolder:
+        type: string
+        example: "analysis_20240101"
+      sessionid:
+        type: array
+        items:
+          type: string
+        example: ["session_xyz789"]
+      uploadState:
+        type: string
+        enum: ["uploaded"]
+        example: "uploaded"
+      serial_filename:
+        type: string
+        example: "CAM001_20240101-123456s1.jpg"
+      evtnum:
+        type: integer
+        example: 1
+      __v:
+        type: integer
+        example: 0
+
+  ProjectInfo:
+    type: object
+    required:
+      - _id
+      - name
+      - id
+    properties:
+      _id:
+        type: string
+        example: "project123"
+      name:
+        type: string
+        example: "야생동물 프로젝트"
+      id:
+        type: string
+        example: "WLP001"
+
+  ErrorResponse:
+    type: object
+    properties:
+      error:
+        type: string
+        example: "파일이 없습니다"
+
+  ExifMetadata:
+    type: object
+    properties:
+      SerialNumber:
+        type: string
+        example: "CAM001"
+      DateTimeOriginal:
+        type: string
+        example: "2024:01:01 12:34:56"
+      UserLabel:
+        type: string
+        example: "UNKNOWN"
+
+  ImageData:
+    type: object
+    properties:
+      _id:
+        type: string
+      FileName:
+        type: string
+      FilePath:
+        type: string
+      ThumnailPath:
+        type: string
+      SerialNumber:
+        type: string
+      DateTimeOriginal:
+        type: object
+        properties:
+          $date:
+            type: string
+            format: date-time
+      ProjectInfo:
+        $ref: '#/definitions/ProjectInfo'
+      is_classified:
+        type: boolean
+
+  ClassifiedImage:
+    allOf:
+      - $ref: '#/definitions/ImageData'
+      - type: object
+        properties:
+          Infos:
+            type: array
+            items:
+              $ref: '#/definitions/ClassificationInfo'
+          Count:
+            type: integer
+          BestClass:
+            type: string
+
+  ClassificationInfo:
+    type: object
+    properties:
+      best_class:
+        type: string
+      best_probability:
+        type: number
+        format: float
+      name:
+        type: string
+      bbox:
+        type: array
+        items:
+          type: number
+          format: float
+      new_bbox:
+        type: array
+        items:
+          type: number
+          format: float
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: []
+
+x-components:
+  parameters:
+    MaxFileSize:
+      name: MAX_FILE_SIZE
+      in: header
+      description: 최대 파일 크기 (10MB)
+      required: false
+      type: integer
+      default: 10485760
+    ThumbnailSize:
+      name: THUMBNAIL_SIZE
+      in: header
+      description: 썸네일 이미지 크기
+      required: false
+      type: array
+      items:
+        type: integer
+      default: [200, 200]
+    GroupTimeLimit:
+      name: GROUP_TIME_LIMIT
+      in: header
+      description: 이미지 그룹화 시간 제한 (분)
+      required: false
+      type: integer
+      default: 5
+
+# 보안 정의
+securityDefinitions:
+  JWT:
+    type: apiKey
+    name: Authorization
+    in: header
+    description: JWT 인증 토큰
+
+# 전역 보안 설정
+security:
+  - JWT: []
