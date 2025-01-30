@@ -16,4 +16,4 @@ def register():
 
     hashed_password = generate_password_hash(password)
     create_user(username, hashed_password, role='user')
-    return jsonify({"message": "User registered successfully"}), 201
+    return jsonify({"message": "회원가입 완료"}), 201

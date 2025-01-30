@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from bson import ObjectId
+from .database import db
 from .database import (
     get_images, 
     get_classified_image_detail, 
@@ -196,3 +197,79 @@ def update_unclassified_image_endpoint(image_id):
         return jsonify({'message': 'Image successfully updated'}), 200
     except Exception as e:
         return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
+
+@classification_bp.route('/images/<image_id>/update', methods=['PUT'])
+@jwt_required()
+def update_image_classification(image_id):
+    """이미지 분류 결과 수정 API"""
+    try:
+        # ObjectId 변환
+        object_id = ObjectId(image_id)
+        
+        # 요청 데이터 확인
+        data = request.get_json()
+        is_classified = data.get('is_classified')
+        
+        if is_classified is None:
+            return jsonify({'message': 'Classification status is required'}), 400
+            
+        # 이미지 존재 확인
+        image = db.images.find_one({'_id': object_id})
+        if not image:
+            return jsonify({'message': 'Image not found'}), 404
+            
+        # 분류 상태 업데이트
+        update_result = db.images.update_one(
+            {'_id': object_id},
+            {'$set': {'is_classified': is_classified}}
+        )
+        
+        if update_result.modified_count == 0:
+            return jsonify({'message': 'No changes made'}), 200
+            
+        # 업데이트된 이미지 정보 조회
+        updated_image = db.images.find_one({'_id': object_id})
+        
+        # 응답 데이터 구성
+        if is_classified:
+            response_data = {
+                # TODO: 딥러닝 분석 결과 필드 (추후 구현)
+                'ImageDatas': {
+                    '_id': str(updated_image['_id']),
+                    'FileName': updated_image.get('FileName'),
+                    'FilePath': updated_image.get('FilePath'),
+                    'OriginalFileName': updated_image.get('OriginalFileName'),
+                    'ThumnailPath': updated_image.get('ThumnailPath'),
+                    'SerialNumber': updated_image.get('SerialNumber'),
+                    'UserLabel': updated_image.get('UserLabel'),
+                    'DateTimeOriginal': updated_image.get('DateTimeOriginal'),
+                    'ProjectInfo': updated_image.get('ProjectInfo'),
+                    'AnalysisFolder': updated_image.get('AnalysisFolder'),
+                    'sessionid': updated_image.get('sessionid'),
+                    'uploadState': updated_image.get('uploadState'),
+                    'serial_filename': updated_image.get('serial_filename')
+                }
+            }
+        else:
+            response_data = {
+                'FileName': updated_image.get('FileName'),
+                'FilePath': updated_image.get('FilePath'),
+                'OriginalFileName': updated_image.get('OriginalFileName'),
+                'ThumnailPath': updated_image.get('ThumnailPath'),
+                'SerialNumber': updated_image.get('SerialNumber'),
+                'UserLabel': updated_image.get('UserLabel'),
+                'DateTimeOriginal': updated_image.get('DateTimeOriginal'),
+                'ProjectInfo': updated_image.get('ProjectInfo'),
+                'AnalysisFolder': updated_image.get('AnalysisFolder'),
+                'sessionid': updated_image.get('sessionid'),
+                'uploadState': updated_image.get('uploadState'),
+                'serial_filename': updated_image.get('serial_filename')
+            }
+            
+        return jsonify({
+            'message': 'Image classification updated successfully',
+            'image': response_data
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'message': 'Update failed', 'error': str(e)}), 400

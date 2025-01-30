@@ -7,7 +7,10 @@ from .admin_login import admin_login_bp
 from .register import register_bp
 from .classification import classification_bp
 from .search import search_bp
-from .image_move import image_move_bp 
+from .image_move import image_move_bp
+from .download import download_bp
+from .inspection import inspection_bp
+from .status import status_bp
 
 def create_app():
     app = Flask(__name__)
@@ -45,4 +48,7 @@ def create_app():
     app.register_blueprint(classification_bp)
     app.register_blueprint(search_bp)
     app.register_blueprint(image_move_bp)
+    app.register_blueprint(download_bp)
+    app.register_blueprint(inspection_bp)
+    app.register_blueprint(status_bp)
     return app
