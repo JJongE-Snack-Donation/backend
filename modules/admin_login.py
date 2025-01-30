@@ -9,31 +9,50 @@ admin_login_bp = Blueprint('admin_login', __name__)
 
 @admin_login_bp.route('/admin/login', methods=['POST'])
 def admin_login():
-    # 관리자 로그인
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
+    """관리자 로그인 API"""
+    try:
+        data = request.json
+        username = data.get('username')
+        password = data.get('password')
 
-    # 사용자 검증
-    user = find_user(username)
-    if user and check_password_hash(user['password'], password) and user['role'] == 'admin':
-        # role 제외하고 username만 포함
-        token = create_access_token(
-            identity=username,
-            expires_delta=timedelta(minutes=60)
-        )
+        user = find_user(username)
+        if user and check_password_hash(user['password'], password) and user['role'] == 'admin':
+            token = create_access_token(
+                identity=username,
+                expires_delta=timedelta(minutes=60)
+            )
+            return jsonify({
+                "status": 200,
+                "result": {
+                    "token": token
+                }
+            }), 200
+        else:
+            return jsonify({
+                "status": 401,
+                "message": "로그인 실패"
+            }), 401
+            
+    except Exception as e:
         return jsonify({
-            "message": "Login successful", 
-            "token": token,
-            "expires_in": "60 minutes"
-        }), 200
-    else:
-        return jsonify({"message": "Invalid credentials or not an admin"}), 401
+            "status": 500,
+            "message": f"서버 오류: {str(e)}"
+        }), 500
+
 @admin_login_bp.route('/admin/logout', methods=['POST'])
 @jwt_required()
 def admin_logout():
-    # 클라이언트에게 로그아웃 성공 메시지만 반환
-    return jsonify({"message": "Successfully logged out"}), 200
+    """관리자 로그아웃 API"""
+    try:
+        return jsonify({
+            "status": 200,
+            "message": "로그아웃 성공"
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": 401,
+            "message": "인증 실패"
+        }), 401
 
 @admin_login_bp.route('/admin/check-auth', methods=['GET'])
 @jwt_required()

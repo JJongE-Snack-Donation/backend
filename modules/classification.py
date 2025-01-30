@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from bson import ObjectId
+from datetime import datetime
 from .database import db
 from .database import (
     get_images, 
@@ -273,3 +274,119 @@ def update_image_classification(image_id):
         
     except Exception as e:
         return jsonify({'message': 'Update failed', 'error': str(e)}), 400
+
+@classification_bp.route('/images/unclassified', methods=['GET'])
+@jwt_required()
+def get_unclassified_images():
+    """미분류 이미지 리스트 조회 API"""
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 20))
+        
+        images = list(db.images.find(
+            {'is_classified': False},
+            {'_id': 1, 'FileName': 1, 'ThumnailPath': 1, 'DateTimeOriginal': 1}
+        ).skip((page - 1) * per_page).limit(per_page))
+        
+        return jsonify({
+            "status": 200,
+            "images": [{
+                "imageId": str(img['_id']),
+                "imageUrl": img['ThumnailPath'],
+                "uploadDate": img['DateTimeOriginal']
+            } for img in images]
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "status": 500,
+            "message": f"서버 오류: {str(e)}"
+        }), 500
+
+@classification_bp.route('/images/classified', methods=['GET'])
+@jwt_required()
+def get_classified_images():
+    """종분류 이미지 리스트 조회 API"""
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 20))
+        sequence = request.args.get('sequenceNumber')
+        
+        query = {'is_classified': True}
+        if sequence:
+            query['evtnum'] = int(sequence)
+            
+        images = list(db.images.find(
+            query,
+            {'_id': 1, 'FileName': 1, 'ThumnailPath': 1, 'BestClass': 1, 'evtnum': 1}
+        ).skip((page - 1) * per_page).limit(per_page))
+        
+        return jsonify({
+            "status": 200,
+            "images": [{
+                "imageId": str(img['_id']),
+                "sequenceNumber": img.get('evtnum'),
+                "imageUrl": img['ThumnailPath'],
+                "classificationResult": img.get('BestClass', '미확인')
+            } for img in images]
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "status": 500,
+            "message": f"서버 오류: {str(e)}"
+        }), 500
+
+@classification_bp.route('/images/<image_id>', methods=['GET'])
+@jwt_required()
+def get_image_detail(image_id):
+    """이미지 상세 정보 조회 API"""
+    try:
+        image = db.images.find_one({'_id': ObjectId(image_id)})
+        if not image:
+            return jsonify({
+                "status": 404,
+                "message": "이미지를 찾을 수 없음"
+            }), 404
+            
+        return jsonify({
+            "status": 200,
+            "image": {
+                "imageId": str(image['_id']),
+                "classificationResult": image.get('BestClass', '미확인'),
+                "details": {
+                    "captureDate": image.get('DateTimeOriginal'),
+                    "location": image.get('ProjectInfo', {}).get('location'),
+                    "animalType": image.get('BestClass')
+                }
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "status": 500,
+            "message": f"서버 오류: {str(e)}"
+        }), 500
+
+@classification_bp.route('/images/<image_id>', methods=['DELETE'])
+@jwt_required()
+def delete_image(image_id):
+    """이미지 삭제 API"""
+    try:
+        result = db.images.delete_one({'_id': ObjectId(image_id)})
+        if result.deleted_count == 0:
+            return jsonify({
+                "status": 404,
+                "message": "이미지를 찾을 수 없음"
+            }), 404
+            
+        return jsonify({
+            "status": 200,
+            "message": "이미지 삭제 성공"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "status": 500,
+            "message": f"서버 오류: {str(e)}"
+        }), 500

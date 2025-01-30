@@ -83,4 +83,46 @@ def confirm_classification(image_id):
         }), 200
         
     except Exception as e:
-        return jsonify({'message': 'Confirmation failed', 'error': str(e)}), 400 
+        return jsonify({'message': 'Confirmation failed', 'error': str(e)}), 400
+
+@inspection_bp.route('/images/<image_id>/inspect', methods=['POST'])
+@jwt_required()
+def inspect_image(image_id):
+    """이미지 검사 API"""
+    try:
+        image = db.images.find_one({'_id': ObjectId(image_id)})
+        if not image:
+            return jsonify({
+                "status": 404,
+                "message": "이미지를 찾을 수 없음"
+            }), 404
+
+        # AI 분석 결과 (임시 데이터)
+        analysis_result = {
+            "animalType": "고라니",
+            "accuracy": 97
+        }
+        
+        # 분석 결과 저장
+        db.images.update_one(
+            {'_id': ObjectId(image_id)},
+            {
+                '$set': {
+                    'BestClass': analysis_result['animalType'],
+                    'inspection_status': 'pending',
+                    'inspection_date': datetime.utcnow()
+                }
+            }
+        )
+
+        return jsonify({
+            "status": 200,
+            "message": "이미지 검사 완료",
+            "result": analysis_result
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": 400,
+            "message": f"검사 실패: {str(e)}"
+        }), 400 

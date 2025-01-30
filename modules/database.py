@@ -4,15 +4,136 @@ from datetime import datetime
 import os
 
 client = MongoClient('mongodb://localhost:27017/')
-db = client['your_database_name']
+db = client['endangered_species_db']  # 데이터베이스 이름 변경
 
-# MongoDB 연결 테스트
 def init_db():
+    """데이터베이스 초기화 함수"""
     try:
-        client.server_info()  # 서버 상태 확인
+        # 1. MongoDB 연결 테스트
+        client.server_info()
         print("MongoDB 연결 성공!")
+        
+        # 2. Users 컬렉션 (관리자/사용자 정보)
+        if 'users' not in db.list_collection_names():
+            db.create_collection('users')
+            db.users.create_index([('username', ASCENDING)], unique=True)
+            
+        # 3. Images 컬렉션 (이미지 메타데이터)
+        if 'images' not in db.list_collection_names():
+            db.create_collection('images')
+            # 기본 인덱스
+            db.images.create_index([('FileName', ASCENDING)])
+            db.images.create_index([('is_classified', ASCENDING)])
+            db.images.create_index([('DateTimeOriginal', DESCENDING)])
+            db.images.create_index([('SerialNumber', ASCENDING)])
+            # 검색 최적화를 위한 인덱스
+            db.images.create_index([('ProjectInfo.ProjectName', ASCENDING)])
+            db.images.create_index([('BestClass', ASCENDING)])
+            db.images.create_index([('inspection_status', ASCENDING)])
+            db.images.create_index([('evtnum', ASCENDING)])
+            
+        # 4. Projects 컬렉션 (프로젝트 정보)
+        if 'projects' not in db.list_collection_names():
+            db.create_collection('projects')
+            db.projects.create_index([('project_name', ASCENDING)], unique=True)
+            
+        # 5. Species 컬렉션 (멸종위기종 정보)
+        if 'species' not in db.list_collection_names():
+            db.create_collection('species')
+            db.species.create_index([('species_code', ASCENDING)], unique=True)
+            
+        # 기본 관리자 계정 생성
+        if not db.users.find_one({'username': 'admin'}):
+            admin_password = generate_password_hash('admin123')
+            db.users.insert_one({
+                'username': 'admin',
+                'password': admin_password,
+                'role': 'admin',
+                'created_at': datetime.utcnow()
+            })
+            print("기본 관리자 계정 생성 완료!")
+            
+        # 기본 멸종위기종 데이터 생성
+        if db.species.count_documents({}) == 0:
+            default_species = [
+                {
+                    'species_code': 'SP001',
+                    'korean_name': '반달가슴곰',
+                    'scientific_name': 'Ursus thibetanus',
+                    'endangered_class': '1급',
+                    'created_at': datetime.utcnow()
+                },
+                # 다른 멸종위기종들 추가...
+            ]
+            db.species.insert_many(default_species)
+            print("기본 멸종위기종 데이터 생성 완료!")
+            
+        print("데이터베이스 초기화 완료!")
+        
     except Exception as e:
-        print(f"MongoDB 연결 실패: {e}")
+        print(f"데이터베이스 초기화 실패: {str(e)}")
+        raise e
+
+# 컬렉션 스키마 정의 (문서화 목적)
+COLLECTION_SCHEMAS = {
+    'users': {
+        'username': str,  # 사용자 아이디
+        'password': str,  # 해시된 비밀번호
+        'role': str,     # 권한 (admin/user)
+        'created_at': datetime,
+        'last_login': datetime
+    },
+    'images': {
+        'FileName': str,
+        'FilePath': str,
+        'OriginalFileName': str,
+        'ThumnailPath': str,
+        'SerialNumber': str,
+        'UserLabel': str,
+        'DateTimeOriginal': datetime,
+        'ProjectInfo': {
+            'ProjectName': str,
+            'ID': str
+        },
+        'AnalysisFolder': str,
+        'is_classified': bool,
+        'sessionid': list,
+        'uploadState': str,
+        'serial_filename': str,
+        'evtnum': int,
+        'Infos': [{
+            'best_class': str,
+            'best_probability': float,
+            'name': str,
+            'bbox': list,
+            'new_bbox': list
+        }],
+        'Count': int,
+        'BestClass': str,
+        'inspection_status': str,  # approved/rejected/pending
+        'inspection_date': datetime
+    },
+    'projects': {
+        'project_name': str,
+        'project_id': str,
+        'description': str,
+        'start_date': datetime,
+        'end_date': datetime,
+        'location': str,
+        'created_at': datetime,
+        'updated_at': datetime
+    },
+    'species': {
+        'species_code': str,
+        'korean_name': str,
+        'scientific_name': str,
+        'endangered_class': str,
+        'description': str,
+        'habitat': str,
+        'created_at': datetime,
+        'updated_at': datetime
+    }
+}
 
 # 사용자 조회
 def find_user(username):
