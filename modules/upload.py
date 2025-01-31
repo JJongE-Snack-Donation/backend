@@ -1,32 +1,25 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, send_file
+from flask_jwt_extended import jwt_required
 from werkzeug.utils import secure_filename
 import os
 import logging
-from .exifparser import process_images
-from pymongo import MongoClient
 from PIL import Image
-from flask_jwt_extended import jwt_required
+from datetime import datetime
+from .exifparser import process_images
+from .database import db
+from .utils.response import standard_response, handle_exception
+from .utils.constants import (
+    ALLOWED_EXTENSIONS,
+    MAX_FILE_SIZE,
+    THUMBNAIL_SIZE,
+    MESSAGES
+)
 
 # 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 upload_bp = Blueprint('upload', __name__)
-
-# MongoDB 연결 설정
-try:
-    client = MongoClient('mongodb://localhost:27017/')
-    db = client['your_database_name']
-    images_collection = db['images']
-except Exception as e:
-    logger.error(f"MongoDB connection error: {str(e)}")
-
-ALLOWED_EXTENSIONS = {'jpg', 'jpeg'}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-THUMBNAIL_SIZE = (200, 200)
 
 def allowed_file(filename: str) -> bool:
     """허용된 파일 확장자 검사"""
@@ -49,72 +42,73 @@ def create_thumbnail(image_path: str, thumbnail_path: str) -> bool:
 def upload_files():
     """파일 업로드 API"""
     try:
-        if 'files[]' not in request.files:
-            return jsonify({
-                "status": 400,
-                "message": "파일이 없습니다"
-            }), 400
+        if 'files' not in request.files:
+            return standard_response(MESSAGES['error']['invalid_request'], status=400)
 
-        files = request.files.getlist('files[]')
-        uploaded_files = []
+        files = request.files.getlist('files')
+        project_info = request.form.get('project_info')
         
+        if not files or not project_info:
+            return standard_response(MESSAGES['error']['invalid_request'], status=400)
+
+        uploaded_files = []
         for file in files:
             if file and allowed_file(file.filename):
-                if len(file.read()) > MAX_FILE_SIZE:
-                    return jsonify({
-                        "status": 400,
-                        "message": f"파일 크기 초과: {file.filename}"
-                    }), 400
-                    
-                file.seek(0)
+                if file.content_length and file.content_length > MAX_FILE_SIZE:
+                    continue
+
                 filename = secure_filename(file.filename)
+                file_path = os.path.join('uploads', filename)
                 
-                # 파일 저장 및 처리 로직
-                file_data = process_file(file, filename)
-                if file_data:
-                    uploaded_files.append(file_data)
-                    
+                # 파일 저장
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                file.save(file_path)
+                
+                # 썸네일 생성
+                thumbnail_path = os.path.join('thumbnails', filename)
+                if create_thumbnail(file_path, thumbnail_path):
+                    uploaded_files.append({
+                        'filename': filename,
+                        'path': file_path,
+                        'thumbnail': thumbnail_path
+                    })
+
         if uploaded_files:
-            # MongoDB에 저장
-            result = images_collection.insert_many(uploaded_files)
+            # EXIF 데이터 처리 및 DB 저장
+            processed_images = process_images(
+                [f['path'] for f in uploaded_files],
+                project_info,
+                'analysis',
+                str(datetime.utcnow())
+            )
             
-            return jsonify({
-                "status": 201,
-                "message": "파일 업로드 성공",
-                "uploadedFiles": [{
-                    "fileId": str(id),
-                    "fileName": file['FileName']
-                } for id, file in zip(result.inserted_ids, uploaded_files)]
-            }), 201
-            
-        return jsonify({
-            "status": 400,
-            "message": "유효한 파일이 없습니다"
-        }), 400
-        
-    except Exception as e:
-        logger.error(f"Upload error: {str(e)}")
-        return jsonify({
-            "status": 400,
-            "message": "파일 업로드 실패"
-        }), 400
+            return standard_response(
+                MESSAGES['success']['upload'],
+                data={'uploaded_files': uploaded_files}
+            )
 
-def process_file(file, filename):
-    """파일 처리 및 메타데이터 생성"""
+        return standard_response(MESSAGES['error']['invalid_request'], status=400)
+
+    except Exception as e:
+        return handle_exception(e)
+
+@upload_bp.route('/files/delete/<image_id>', methods=['DELETE'])
+@jwt_required()
+def delete_file(image_id):
+    """파일 삭제 API"""
     try:
-        # 여기에 파일 처리 로직 구현
-        # (process_images 함수 호출 등)
-        return {
-            'FileName': filename,
-            'is_classified': False,
-            # 기타 필요한 메타데이터
-        }
-    except Exception as e:
-        logger.error(f"File processing error: {str(e)}")
-        return None
+        image = db.images.find_one_and_delete({'_id': image_id})
+        
+        if not image:
+            return standard_response(MESSAGES['error']['not_found'], status=404)
 
-# 에러 핸들러
-@upload_bp.errorhandler(Exception)
-def handle_error(error):
-    logger.error(f"Unexpected error: {str(error)}")
-    return jsonify({'error': '서버 오류가 발생했습니다'}), 500
+        # 실제 파일 삭제
+        for path in [image.get('FilePath'), image.get('ThumnailPath')]:
+            if path and os.path.exists(path):
+                os.remove(path)
+
+        return standard_response(MESSAGES['success']['delete'])
+
+    except Exception as e:
+        return handle_exception(e)
+
