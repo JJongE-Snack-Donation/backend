@@ -2,9 +2,13 @@ from pymongo import MongoClient, ASCENDING, DESCENDING
 from werkzeug.security import generate_password_hash
 from datetime import datetime
 import os
+from bson import ObjectId
+from typing import Dict, List, Optional, Union
+from .utils.constants import MONGODB_URI, DB_NAME
 
-client = MongoClient('mongodb://localhost:27017/')
-db = client['endangered_species_db']  # 데이터베이스 이름 변경
+# MongoDB 연결
+client = MongoClient(MONGODB_URI)
+db = client[DB_NAME]
 
 def init_db():
     """데이터베이스 초기화 함수"""
@@ -86,38 +90,53 @@ COLLECTION_SCHEMAS = {
         'last_login': datetime
     },
     'images': {
-        'FileName': str,
-        'FilePath': str,
-        'OriginalFileName': str,
-        'ThumnailPath': str,
-        'SerialNumber': str,
-        'UserLabel': str,
-        'DateTimeOriginal': datetime,
-        'ProjectInfo': {
-            'ProjectName': str,
-            'ID': str
+        'FileName': str,              # 형식: YYYYMMDD-HHMMSSs1.jpg
+        'FilePath': str,              # 형식: ./mnt/{project_id}/{analysis_folder}/source/{filename}
+        'OriginalFileName': str,      # 원본 이미지 파일명
+        'ThumnailPath': str,          # 형식: ./mnt/{project_id}/{analysis_folder}/thumbnail/thum_{filename}
+        'SerialNumber': str,          # 카메라 시리얼 번호 (카메라 라벨)
+        'DateTimeOriginal': {         # EXIF에서 추출한 촬영 시간
+            '$date': str              # ISO 형식의 날짜/시간
         },
-        'AnalysisFolder': str,
-        'is_classified': bool,
-        'sessionid': list,
-        'uploadState': str,
-        'serial_filename': str,
-        'evtnum': int,
-        'Infos': [{
-            'best_class': str,
-            'best_probability': float,
-            'name': str,
-            'bbox': list,
-            'new_bbox': list
+        'ProjectInfo': {              # 프로젝트 정보
+            'ProjectName': str,       # 프로젝트 이름
+            'ID': str                 # 프로젝트 ID
+        },
+        'AnalysisFolder': str,        # 분석 폴더명
+        'sessionid': List[str],       # 세션 ID 목록
+        'uploadState': str,           # 업로드 상태 (예: "uploaded")
+        'serial_filename': str,       # 형식: {serial_number}_{filename}
+        'evtnum': int,                # 이벤트 번호 (시간 그룹화)
+        '__v': int,                   # 버전 정보
+
+        # AI 분석 결과 필드
+        'Infos': [{                   # AI 탐지 결과
+            'best_class': str,        # 종 이름
+            'best_probability': float, # 확률
+            'name': str,              # 객체 이름
+            'bbox': List[float],      # 바운딩 박스 좌표
+            'new_bbox': List[float]   # 새로운 바운딩 박스 좌표
         }],
-        'Count': int,
-        'BestClass': str,
-        'inspection_status': str,  # approved/rejected/pending
-        'inspection_date': datetime,
-        'exception_status': str,     # pending/processed
-        'is_favorite': bool,         # 즐겨찾기 여부
-        'inspection_complete': bool, # 검수 완료 여부
-        'event_group': str,         # 5분 간격 그룹 ID (YYYYMMDD_HHMM)
+        'Count': int,                 # 개체 수
+        'BestClass': str,             # 최종 종 분류
+        'Accuracy': float,            # 정확도
+        'AI_processed': bool,         # AI 처리 여부
+        'AI_process_date': datetime,  # AI 처리 날짜
+
+        # 추가 메타데이터
+        'UploadDate': datetime,       # 업로드 날짜/시간
+        'Latitude': float,            # 위도 (EXIF에서 추출 가능할 경우)
+        'Longitude': float,           # 경도 (EXIF에서 추출 가능할 경우)
+        
+        # 상태 관리 필드
+        'is_classified': bool,        # 분류 여부
+        'classification_date': datetime,  # 분류 날짜
+        'inspection_status': str,     # approved/rejected/pending
+        'inspection_date': datetime,  # 검수 날짜
+        'inspection_complete': bool,  # 검수 완료 여부
+        'exception_status': str,      # pending/processed
+        'exception_comment': str,     # 예외 처리 코멘트
+        'is_favorite': bool,          # 즐겨찾기 여부
     },
     'projects': {
         'project_name': str,        # 프로젝트 이름 (필수)
@@ -143,11 +162,10 @@ COLLECTION_SCHEMAS = {
     }
 }
 
-# 사용자 조회
-def find_user(username):
+def find_user(username: str) -> Optional[Dict]:
+    """사용자 조회"""
     return db.users.find_one({'username': username})
 
-# 사용자 생성
 def create_user(username, password, email, role='user'):
     try:
         hashed_password = generate_password_hash(password)
@@ -163,200 +181,100 @@ def create_user(username, password, email, role='user'):
     except Exception as e:
         return {"error": str(e)}
 
-# 사용자 컬렉션 초기화
 def init_collections():
     db.users.create_index("username", unique=True)
     print("Users 컬렉션 초기화 완료!")
 
-# 이미지 컬렉션 초기화
-def init_collections():
-    db.users.create_index("username", unique=True)
-    db.images.create_index("filename", unique=True)
-    print("Collections 초기화 완료!")
-
-# 이미지 조회 (분류/미분류)
-def get_images(is_classified=None, page=1, per_page=50):
-    """
-    이미지 목록 조회 (페이지네이션)
-    Parameters:
-    - is_classified: True/False/None (전체)
-    - page: 페이지 번호 (default: 1)
-    - per_page: 페이지당 이미지 수 (default: 12)
-    """
+def get_images(is_classified: bool = None, page: int = 1, per_page: int = 12) -> Dict:
+    """이미지 목록 조회"""
     try:
         query = {}
         if is_classified is not None:
             query['is_classified'] = is_classified
-
+            
         total = db.images.count_documents(query)
-        
         images = list(db.images.find(query)
-                     .sort('DateTimeOriginal', DESCENDING)
                      .skip((page - 1) * per_page)
                      .limit(per_page))
-        
-        # ObjectId를 문자열로 변환
+                     
         for image in images:
             image['_id'] = str(image['_id'])
-        
+            
         return {
-            'images': images,
             'total': total,
+            'images': images,
             'page': page,
-            'per_page': per_page,
-            'total_pages': (total + per_page - 1) // per_page
+            'per_page': per_page
         }
+        
     except Exception as e:
         return {'error': str(e)}
 
-# 이미지 저장
-def save_image_data(image_data):
+def save_image_data(image_data: Dict) -> Union[str, None]:
+    """이미지 데이터 저장"""
     try:
-        image_data['upload_date'] = datetime.now()
-        image_data['is_classified'] = False  # 초기에는 미분류 상태
-        db.images.insert_one(image_data)
-        return {"message": "Image data saved successfully"}
+        result = db.images.insert_one(image_data)
+        return str(result.inserted_id)
     except Exception as e:
-        return {"error": str(e)}
+        return None
 
-def delete_classified_image(image_id):
-    """
-    분류된 이미지 삭제
-    """
+def delete_classified_image(image_id: ObjectId) -> Dict:
+    """분류된 이미지 삭제"""
     try:
-        image = db.images.find_one({
-            '_id': image_id,
-            'is_classified': True
-        })
-        
-        if not image:
-            return {'deleted': False}
-            
-        # 실제 파일 삭제
-        if os.path.exists(image['FilePath']):
-            os.remove(image['FilePath'])
-        if os.path.exists(image['ThumnailPath']):
-            os.remove(image['ThumnailPath'])
-            
         result = db.images.delete_one({
             '_id': image_id,
             'is_classified': True
         })
-        
         return {'deleted': result.deleted_count > 0}
     except Exception as e:
         return {'error': str(e)}
 
-def delete_unclassified_image(image_id):
-    """
-    미분류 이미지 삭제
-    """
+def delete_unclassified_image(image_id: ObjectId) -> Dict:
+    """미분류 이미지 삭제"""
     try:
-        image = db.images.find_one({
-            '_id': image_id,
-            'is_classified': False
-        })
-        
-        if not image:
-            return {'deleted': False}
-            
-        # 실제 파일 삭제
-        if os.path.exists(image['FilePath']):
-            os.remove(image['FilePath'])
-        if os.path.exists(image['ThumnailPath']):
-            os.remove(image['ThumnailPath'])
-            
         result = db.images.delete_one({
             '_id': image_id,
             'is_classified': False
         })
-        
         return {'deleted': result.deleted_count > 0}
     except Exception as e:
         return {'error': str(e)}
-    
-def update_classified_image(image_id, update_data):
-    """
-    분류된 이미지 정보 수정
-    """
+
+def update_classified_image(image_id: ObjectId, update_data: Dict) -> Dict:
+    """분류된 이미지 업데이트"""
     try:
-        allowed_fields = {
-            'Infos',
-            'Count',
-            'BestClass',
-            'ProjectInfo',
-            'AnalysisFolder'
-        }
-        update_dict = {k: v for k, v in update_data.items() if k in allowed_fields}
-        
         result = db.images.update_one(
-            {
-                '_id': image_id,
-                'is_classified': True
-            },
-            {'$set': update_dict}
+            {'_id': image_id, 'is_classified': True},
+            {'$set': update_data}
         )
-        
         return {'updated': result.modified_count > 0}
     except Exception as e:
         return {'error': str(e)}
 
-def update_unclassified_image(image_id, update_data):
-    """
-    미분류 이미지 정보 수정
-    """
+def update_unclassified_image(image_id: ObjectId, update_data: Dict) -> Dict:
+    """미분류 이미지 업데이트"""
     try:
-        allowed_fields = {
-            'ProjectInfo',
-            'AnalysisFolder'
-        }
-        update_dict = {k: v for k, v in update_data.items() if k in allowed_fields}
-        
         result = db.images.update_one(
-            {
-                '_id': image_id,
-                'is_classified': False
-            },
-            {'$set': update_dict}
+            {'_id': image_id, 'is_classified': False},
+            {'$set': update_data}
         )
-        
         return {'updated': result.modified_count > 0}
     except Exception as e:
         return {'error': str(e)}
 
-def get_classified_image_detail(image_id):
-    """
-    분류된 이미지 상세 정보 조회
-    """
-    try:
-        image = db.images.find_one({
-            '_id': image_id,
-            'is_classified': True
-        })
-        
-        if image:
-            image['_id'] = str(image['_id'])
-            
-        return image
-    except Exception as e:
-        return {'error': str(e)}
+def get_classified_image_detail(image_id: ObjectId) -> Optional[Dict]:
+    """분류된 이미지 상세 정보 조회"""
+    return db.images.find_one({
+        '_id': image_id,
+        'is_classified': True
+    })
 
-def get_unclassified_image_detail(image_id):
-    """
-    미분류 이미지 상세 정보 조회
-    """
-    try:
-        image = db.images.find_one({
-            '_id': image_id,
-            'is_classified': False
-        })
-        
-        if image:
-            image['_id'] = str(image['_id'])
-            
-        return image
-    except Exception as e:
-        return {'error': str(e)}
+def get_unclassified_image_detail(image_id: ObjectId) -> Optional[Dict]:
+    """미분류 이미지 상세 정보 조회"""
+    return db.images.find_one({
+        '_id': image_id,
+        'is_classified': False
+    })
 
 def check_project_name_exists(project_name):
     """프로젝트 이름 중복 확인"""
@@ -432,9 +350,14 @@ def update_project(project_name, update_data):
 def delete_project(project_name):
     """프로젝트 삭제"""
     try:
+        # 프로젝트 삭제
         result = db.projects.delete_one({'project_name': project_name})
         if result.deleted_count == 0:
             return {"error": "프로젝트를 찾을 수 없습니다"}
+            
+        # 관련된 이미지들도 삭제
+        db.images.delete_many({'ProjectInfo.ProjectName': project_name})
+        
         return {"message": "프로젝트가 삭제되었습니다"}
     except Exception as e:
         return {"error": str(e)}
