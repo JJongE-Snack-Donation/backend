@@ -10,9 +10,7 @@ from .utils.constants import MESSAGES, JWT_ACCESS_TOKEN_EXPIRES
 
 admin_login_bp = Blueprint('admin_login', __name__)
 
-EXIFTOOL_PATH = "C:\\Users\\User\\Desktop\\DFtool\\ExifToolGui\\ExifToolGui\\exiftool.exe"
-
-@admin_login_bp.route('/admin/login', methods=['POST'])
+@admin_login_bp.route('/login', methods=['POST'])
 def admin_login() -> Tuple[Dict[str, Any], int]:
     """관리자 로그인 API"""
     try:
@@ -52,7 +50,7 @@ def admin_login() -> Tuple[Dict[str, Any], int]:
     except Exception as e:
         return handle_exception(e, error_type="auth_error")
 
-@admin_login_bp.route('/admin/verify', methods=['GET'])
+@admin_login_bp.route('/verify', methods=['GET'])
 @jwt_required()
 def verify_admin() -> Tuple[Dict[str, Any], int]:
     """관리자 토큰 검증 API"""
@@ -74,7 +72,7 @@ def verify_admin() -> Tuple[Dict[str, Any], int]:
     except Exception as e:
         return handle_exception(e, error_type="auth_error")
 
-@admin_login_bp.route('/admin/logout', methods=['POST'])
+@admin_login_bp.route('/logout', methods=['POST'])
 @jwt_required()
 def admin_logout():
     """관리자 로그아웃 API"""
@@ -83,7 +81,7 @@ def admin_logout():
     except Exception as e:
         return handle_exception(e, error_type="auth_error")
 
-@admin_login_bp.route('/admin/check-auth', methods=['GET'])
+@admin_login_bp.route('/check-auth', methods=['GET'])
 @jwt_required()
 def check_auth():
     """현재 로그인 상태 확인용 엔드포인트"""

@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 import os
 
 from .database import init_db
-from .auth import auth_bp
 from .admin_login import admin_login_bp
 from .classification import classification_bp
 from .search import search_bp  # 검색 기능
@@ -51,7 +50,6 @@ def create_app():
     init_db()
     
     # 블루프린트 등록
-    app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(admin_login_bp, url_prefix='/api/admin')
     app.register_blueprint(classification_bp, url_prefix='/api/classification')
     app.register_blueprint(search_bp, url_prefix='/api/search')  # 검색 API
