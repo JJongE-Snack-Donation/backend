@@ -17,6 +17,18 @@ def init_db():
         if 'users' not in db.list_collection_names():
             db.create_collection('users')
             db.users.create_index([('username', ASCENDING)], unique=True)
+            db.users.create_index([('email', ASCENDING)], unique=True)
+            
+            # 기본 관리자 계정 생성
+            admin_password = generate_password_hash('admin123')
+            db.users.insert_one({
+                'username': 'admin',
+                'password': admin_password,
+                'email': 'admin@example.com',  # 이메일 추가
+                'role': 'admin',
+                'created_at': datetime.utcnow()
+            })
+            print("기본 관리자 계정 생성 완료!")
             
         # 3. Images 컬렉션 (이미지 메타데이터)
         if 'images' not in db.list_collection_names():
@@ -41,17 +53,6 @@ def init_db():
         if 'species' not in db.list_collection_names():
             db.create_collection('species')
             db.species.create_index([('species_code', ASCENDING)], unique=True)
-            
-        # 기본 관리자 계정 생성
-        if not db.users.find_one({'username': 'admin'}):
-            admin_password = generate_password_hash('admin123')
-            db.users.insert_one({
-                'username': 'admin',
-                'password': admin_password,
-                'role': 'admin',
-                'created_at': datetime.utcnow()
-            })
-            print("기본 관리자 계정 생성 완료!")
             
         # 기본 멸종위기종 데이터 생성
         if db.species.count_documents({}) == 0:
@@ -79,6 +80,7 @@ COLLECTION_SCHEMAS = {
     'users': {
         'username': str,  # 사용자 아이디
         'password': str,  # 해시된 비밀번호
+        'email': str,    # 이메일 주소 추가
         'role': str,     # 권한 (admin/user)
         'created_at': datetime,
         'last_login': datetime
@@ -111,17 +113,23 @@ COLLECTION_SCHEMAS = {
         'Count': int,
         'BestClass': str,
         'inspection_status': str,  # approved/rejected/pending
-        'inspection_date': datetime
+        'inspection_date': datetime,
+        'exception_status': str,     # pending/processed
+        'is_favorite': bool,         # 즐겨찾기 여부
+        'inspection_complete': bool, # 검수 완료 여부
+        'event_group': str,         # 5분 간격 그룹 ID (YYYYMMDD_HHMM)
     },
     'projects': {
-        'project_name': str,
-        'project_id': str,
-        'description': str,
-        'start_date': datetime,
-        'end_date': datetime,
-        'location': str,
-        'created_at': datetime,
-        'updated_at': datetime
+        'project_name': str,        # 프로젝트 이름 (필수)
+        'start_date': str,          # 시작일 (필수) YYYY-MM-DD
+        'end_date': str,            # 종료일 (필수) YYYY-MM-DD
+        'address': str,             # 주소 (필수)
+        'status': str,              # 상태 (자동지정: '준비 중'/'준비 완료')
+        'organization': str,        # 소속 (선택)
+        'manager_username': str,    # 담당자 계정 (필수/자동지정)
+        'manager_email': str,       # 이메일 (필수/자동지정)
+        'memo': str,                # 메모 (선택)
+        'created_at': str           # 생성일시 (필수/자동지정) YYYY-MM-DD HH:MM:SS
     },
     'species': {
         'species_code': str,
@@ -140,13 +148,15 @@ def find_user(username):
     return db.users.find_one({'username': username})
 
 # 사용자 생성
-def create_user(username, password, role='user'):
+def create_user(username, password, email, role='user'):
     try:
         hashed_password = generate_password_hash(password)
         user_data = {
             "username": username,
-            "password": password,   
-            "role": role
+            "password": hashed_password,
+            "email": email,    # 이메일 추가
+            "role": role,
+            "created_at": datetime.utcnow()
         }
         db.users.insert_one(user_data)
         return {"message": "User created successfully"}
@@ -347,3 +357,84 @@ def get_unclassified_image_detail(image_id):
         return image
     except Exception as e:
         return {'error': str(e)}
+
+def check_project_name_exists(project_name):
+    """프로젝트 이름 중복 확인"""
+    try:
+        exists = db.projects.find_one({'project_name': project_name}) is not None
+        return {"exists": exists}
+    except Exception as e:
+        return {"error": str(e)}
+
+def create_project(project_data, manager_username):
+    """새 프로젝트 생성"""
+    try:
+        # 필수 필드 확인
+        required_fields = ['project_name', 'start_date', 'end_date', 'address']
+        for field in required_fields:
+            if not project_data.get(field):
+                return {"error": f"필수 필드 누락: {field}"}
+
+        # 담당자 정보 가져오기
+        manager = find_user(manager_username)
+        if not manager:
+            return {"error": "담당자 정보를 찾을 수 없습니다"}
+
+        # 자동 지정 필드 추가
+        project_data.update({
+            'status': '준비 중',
+            'manager_username': manager_username,
+            'manager_email': manager['email'],
+            'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+
+        result = db.projects.insert_one(project_data)
+        return {"message": "프로젝트가 생성되었습니다", "project_id": str(result.inserted_id)}
+    except Exception as e:
+        return {"error": str(e)}
+
+def get_all_projects():
+    """프로젝트 목록 조회"""
+    try:
+        projects = list(db.projects.find({}, {'_id': 0}))  # _id 필드 제외
+        return {"projects": projects}
+    except Exception as e:
+        return {"error": str(e)}
+
+def get_project(project_name):
+    """프로젝트 상세 정보 조회"""
+    try:
+        project = db.projects.find_one({'project_name': project_name}, {'_id': 0})
+        if not project:
+            return {"error": "프로젝트를 찾을 수 없습니다"}
+        return {"project": project}
+    except Exception as e:
+        return {"error": str(e)}
+
+def update_project(project_name, update_data):
+    """프로젝트 정보 수정"""
+    try:
+        # 수정 불가능한 필드 제거
+        protected_fields = ['manager_username', 'manager_email', 'created_at']
+        for field in protected_fields:
+            update_data.pop(field, None)
+
+        result = db.projects.update_one(
+            {'project_name': project_name},
+            {'$set': update_data}
+        )
+        if result.modified_count == 0:
+            return {"error": "프로젝트를 찾을 수 없습니다"}
+        return {"message": "프로젝트가 수정되었습니다"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def delete_project(project_name):
+    """프로젝트 삭제"""
+    try:
+        result = db.projects.delete_one({'project_name': project_name})
+        if result.deleted_count == 0:
+            return {"error": "프로젝트를 찾을 수 없습니다"}
+        return {"message": "프로젝트가 삭제되었습니다"}
+    except Exception as e:
+        return {"error": str(e)}
