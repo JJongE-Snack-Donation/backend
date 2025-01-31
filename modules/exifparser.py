@@ -4,6 +4,9 @@ import json
 import os
 import logging
 from typing import List, Dict, Optional
+from .database import db
+from .utils.response import handle_exception
+from .utils.constants import EXIFTOOL_PATH, GROUP_TIME_LIMIT
 
 # 로깅 설정
 logging.basicConfig(
@@ -11,10 +14,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# ExifTool 경로 설정
-EXIFTOOL_PATH = "C:\\Users\\User\\Desktop\\DFtool\\ExifToolGui\\ExifToolGui\\exiftool.exe"
-GROUP_TIME_LIMIT = 5
 
 def parse_exif_data_batch(image_paths: List[str]) -> List[Dict]:
     """ExifTool을 사용하여 여러 이미지의 EXIF 데이터를 한 번에 추출"""
