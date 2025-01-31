@@ -15,7 +15,6 @@ from .exception import exception_bp
 from .favorite import favorite_bp
 from .image_move import image_move_bp
 from .download import download_bp  # 다운로드 기능
-from .inspection import inspection_bp
 from .status import status_bp
 from .project import project_bp  # 프로젝트 관리
 from .ai_detection import detection_bp
@@ -57,7 +56,6 @@ def create_app():
     app.register_blueprint(favorite_bp, url_prefix='/api/favorite')
     app.register_blueprint(download_bp, url_prefix='/api/download')  # 다운로드 API
     app.register_blueprint(image_move_bp, url_prefix='/api/move')
-    app.register_blueprint(inspection_bp, url_prefix='/api/inspection')
     app.register_blueprint(status_bp, url_prefix='/api/status')
     app.register_blueprint(project_bp, url_prefix='/api/project')  # 프로젝트 API
     app.register_blueprint(detection_bp, url_prefix='/api/ai')
