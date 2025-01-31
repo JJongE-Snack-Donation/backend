@@ -24,7 +24,9 @@ def admin_login():
             return jsonify({
                 "status": 200,
                 "result": {
-                    "token": token
+                    "token": token,
+                    "username": user['username'],
+                    "email": user['email']
                 }
             }), 200
         else:
