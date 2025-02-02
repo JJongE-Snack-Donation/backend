@@ -1,3 +1,4 @@
+'''
 from flask import Blueprint, request
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator
@@ -228,4 +229,4 @@ def update_inspection_status(image_id: str) -> Tuple[Dict[str, Any], int]:
         return standard_response("검사 상태가 업데이트되었습니다")
         
     except Exception as e:
-        return handle_exception(e, error_type="db_error") 
+        return handle_exception(e, error_type="db_error") '''

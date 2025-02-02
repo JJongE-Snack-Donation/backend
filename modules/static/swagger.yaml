@@ -1,104 +1,94 @@
 swagger: "2.0"
 info:
-  title: 쫑이까까후원재단 API
-  version: 1.0.0
-  description: 멸종위기종 보호를 위한 REST API 문서
+  title: "쫑이까까후원재단 API"
+  version: "1.0.0"
+  description: "멸종위기종 보호를 위한 REST API 문서"
+
+basePath: "/"
+schemes:
+  - "http"
+  - "https"
 
 tags:
-  - name: Admin Login
-    description: 관리자 로그인 관련 API
-  - name: User Registration
-    description: 사용자 회원가입 관련 API
-  - name: Project
-    description: 프로젝트 관련 API
-  - name: AI Detection
-    description: AI 객체 탐지 관련 API
-  - name: Exception
-    description: 예외 처리 관련 API
-  - name: Favorite
-    description: 즐겨찾기 관련 API
+  - name: "Admin Login"
+    description: "관리자 로그인 관련 API"
+  - name: "User Registration"
+    description: "사용자 회원가입 관련 API"
+  - name: "Project"
+    description: "프로젝트 관련 API"
+  - name: "AI Detection"
+    description: "AI 객체 탐지 관련 API"
+  - name: "Exception"
+    description: "예외 처리 관련 API"
+  - name: "Favorite"
+    description: "즐겨찾기 관련 API"
+  - name: "Upload"
+    description: "파일 업로드 관련 API"
 
 paths:
   /admin/login:
     post:
-      summary: 관리자 로그인
       tags:
-        - Admin Login
+        - "Admin Login"
+      summary: "관리자 로그인"
       consumes:
-        - application/json
+        - "application/json"
+      produces:
+        - "application/json"
       parameters:
-        - in: body
-          name: body
-          description: 로그인 데이터 (username, password)
+        - in: "body"
+          name: "body"
+          description: "로그인 데이터"
           required: true
           schema:
-            type: object
+            type: "object"
             properties:
               username:
-                type: string
+                type: "string"
                 example: "admin"
               password:
-                type: string
+                type: "string"
                 example: "password"
       responses:
         200:
-          description: Login successful
+          description: "로그인 성공"
           schema:
-            type: object
+            type: "object"
             properties:
               message:
-                type: string
-                example: "Login successful"
+                type: "string"
+                example: "로그인 성공"
               token:
-                type: string
+                type: "string"
                 example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
-        401:
-          description: Invalid credentials
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "Invalid credentials"
 
   /register:
     post:
-      summary: 사용자 회원가입
       tags:
-        - User Registration
-      consumes:
-        - application/json
-      parameters:
-        - in: body
-          name: body
-          description: 회원가입 데이터 (username, password)
-          required: true
-          schema:
-            type: object
-            properties:
-              username:
-                type: string
-                example: "user"
-              password:
-                type: string
-                example: "password"
+        - "User Registration"
+      summary: "회원가입"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
       responses:
-        201:
-          description: User registered successfully
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "User registered successfully"
-        400:
-          description: User already exists
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "User already exists"
+        '201':
+          description: 회원가입 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
   /upload:
     post:
       tags:
@@ -361,9 +351,9 @@ paths:
   /images/move:
     post:
       tags:
-        - Images
-      summary: 이미지 분류 상태 변경
-      description: 이미지의 분류/미분류 상태를 변경합니다
+        - "Images"
+      summary: "이미지 분류 상태 변경"
+      description: "이미지의 분류/미분류 상태를 변경합니다"
       parameters:
         - in: body
           name: body
@@ -375,16 +365,16 @@ paths:
                 type: array
                 items:
                   type: string
-                description: 이동할 이미지 ID 목록
+                description: "이동할 이미지 ID 목록"
               to_classified:
                 type: boolean
-                description: 분류 상태로 이동 여부 (true: 분류됨, false: 미분류)
+                description: "분류 상태로 이동 여부 (true: 분류됨, false: 미분류)"
             required:
               - image_ids
               - to_classified
       responses:
         200:
-          description: 이미지 이동 성공
+          description: "이미지 이동 성공"
           schema:
             type: object
             properties:
@@ -393,9 +383,9 @@ paths:
                 example: "Images moved successfully"
               moved_count:
                 type: integer
-                description: 이동된 이미지 수
+                description: "이동된 이미지 수"
         400:
-          description: 잘못된 요청
+          description: "잘못된 요청"
           schema:
             type: object
             properties:
@@ -495,42 +485,6 @@ paths:
                 type: string
                 example: "파일이 없습니다"
 
-  # Register 관련 엔드포인트
-  /register:
-    post:
-      tags:
-        - User Registration
-      summary: 사용자 회원가입
-      parameters:
-        - in: body
-          name: body
-          required: true
-          schema:
-            type: object
-            properties:
-              username:
-                type: string
-                example: "user123"
-              password:
-                type: string
-                example: "password123"
-      responses:
-        201:
-          description: 회원가입 성공
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "회원가입 완료"
-        400:
-          description: 이미 존재하는 사용자
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "User already exists"
 
   # Image Move 관련 엔드포인트
   /images/{image_id}/move:
@@ -580,7 +534,7 @@ paths:
   /admin/check-auth:
     get:
       tags:
-        - Admin Login
+        - "Admin Login"
       summary: 로그인 상태 확인
       security:
         - Bearer: []
@@ -605,7 +559,7 @@ paths:
   /admin/logout:
     post:
       tags:
-        - Admin Login
+        - "Admin Login"
       summary: 관리자 로그아웃
       security:
         - Bearer: []
@@ -1195,13 +1149,14 @@ definitions:
 
 components:
   securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+    Bearer:
+      type: apiKey
+      name: Authorization
+      in: header
+      description: "JWT 토큰을 입력하세요. 예: Bearer {token}"
 
 security:
-  - BearerAuth: []
+  - Bearer: []
 
 x-components:
   parameters:
@@ -1228,15 +1183,3 @@ x-components:
       required: false
       type: integer
       default: 5
-
-# 보안 정의
-securityDefinitions:
-  JWT:
-    type: apiKey
-    name: Authorization
-    in: header
-    description: JWT 인증 토큰
-
-# 전역 보안 설정
-security:
-  - JWT: []

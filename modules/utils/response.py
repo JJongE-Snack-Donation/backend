@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Tuple
 from flask import jsonify
 
 def standard_response(
@@ -6,7 +6,7 @@ def standard_response(
     data: Optional[Dict[str, Any]] = None, 
     meta: Optional[Dict[str, Any]] = None,
     status: int = 200
-) -> tuple[Dict[str, Any], int]:
+) -> Tuple[Dict[str, Any], int]:
     """표준 응답 형식"""
     response = {
         "message": message,
@@ -21,7 +21,7 @@ def standard_response(
 def handle_exception(
     e: Exception, 
     error_type: str = "general_error"
-) -> tuple[Dict[str, Any], int]:
+) -> Tuple[Dict[str, Any], int]:
     """예외 처리 함수
     
     error_types:
