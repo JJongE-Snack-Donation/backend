@@ -6,7 +6,6 @@ from bson import ObjectId
 from bson.binary import Binary
 from datetime import datetime, timedelta
 import os
-
 from .database import init_db
 from .admin_login import admin_login_bp
 from .classification import classification_bp
@@ -18,6 +17,8 @@ from .download import download_bp  # 다운로드 기능
 from .status import status_bp
 from .project import project_bp  # 프로젝트 관리
 from .ai_detection import detection_bp
+
+from .upload import upload_bp  # 파일 업로드 추가
 
 class CustomJSONProvider(DefaultJSONProvider):
     """MongoDB ObjectId와 Binary 직렬화를 위한 커스텀 JSON 프로바이더"""
@@ -48,16 +49,17 @@ def create_app():
     # 데이터베이스 초기화
     init_db()
     
-    # 블루프린트 등록
-    app.register_blueprint(admin_login_bp, url_prefix='/api/admin')
-    app.register_blueprint(classification_bp, url_prefix='/api/classification')
-    app.register_blueprint(search_bp, url_prefix='/api/search')  # 검색 API
-    app.register_blueprint(exception_bp, url_prefix='/api/exception')
-    app.register_blueprint(favorite_bp, url_prefix='/api/favorite')
-    app.register_blueprint(download_bp, url_prefix='/api/download')  # 다운로드 API
-    app.register_blueprint(image_move_bp, url_prefix='/api/move')
-    app.register_blueprint(status_bp, url_prefix='/api/status')
-    app.register_blueprint(project_bp, url_prefix='/api/project')  # 프로젝트 API
-    app.register_blueprint(detection_bp, url_prefix='/api/ai')
+    # 블루프린트 등록 (/api 제거)
+    app.register_blueprint(admin_login_bp, url_prefix='/admin')
+    app.register_blueprint(classification_bp, url_prefix='/classification')
+    app.register_blueprint(search_bp, url_prefix='/search')
+    app.register_blueprint(exception_bp, url_prefix='/exception')
+    app.register_blueprint(favorite_bp, url_prefix='/favorite')
+    app.register_blueprint(download_bp, url_prefix='/download')
+    app.register_blueprint(image_move_bp, url_prefix='/move')
+    app.register_blueprint(status_bp, url_prefix='/status')
+    app.register_blueprint(project_bp, url_prefix='/project')
+    app.register_blueprint(detection_bp, url_prefix='/ai')
+    app.register_blueprint(upload_bp, url_prefix='/files')  # 파일 업로드 추가
     
     return app

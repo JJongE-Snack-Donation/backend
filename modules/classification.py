@@ -5,14 +5,12 @@ from datetime import datetime
 from typing import Tuple, Dict, Any, List, Optional
 from .database import db
 from .database import (
-    get_images, 
     get_classified_image_detail, 
     get_unclassified_image_detail,
     delete_classified_image,
     delete_unclassified_image,
     update_classified_image,    
-    update_unclassified_image,
-    save_image_data
+    update_unclassified_image
 )
 from .utils.response import standard_response, handle_exception, pagination_meta
 from .utils.constants import PER_PAGE_DEFAULT, VALID_EXCEPTION_STATUSES, MESSAGES, VALID_INSPECTION_STATUSES
