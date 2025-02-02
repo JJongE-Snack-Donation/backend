@@ -9,6 +9,14 @@ tags:
     description: 관리자 로그인 관련 API
   - name: User Registration
     description: 사용자 회원가입 관련 API
+  - name: Project
+    description: 프로젝트 관련 API
+  - name: AI Detection
+    description: AI 객체 탐지 관련 API
+  - name: Exception
+    description: 예외 처리 관련 API
+  - name: Favorite
+    description: 즐겨찾기 관련 API
 
 paths:
   /admin/login:
@@ -662,7 +670,7 @@ paths:
         404:
           description: 이미지를 찾을 수 없음
 
-  # AI Detection 관련 엔드포인트
+  # AI Detection API
   /ai-detection:
     post:
       tags:
@@ -690,19 +698,21 @@ paths:
             properties:
               message:
                 type: string
-                example: "AI 탐지가 완료되었습니다"
               data:
                 type: object
                 properties:
                   processed_count:
                     type: integer
-                    example: 5
         400:
           description: 잘못된 요청
+          schema:
+            $ref: '#/definitions/Error'
         500:
           description: 서버 오류
+          schema:
+            $ref: '#/definitions/Error'
 
-  # Exception 관련 엔드포인트
+  # Exception API
   /exception/{image_id}/status:
     put:
       tags:
@@ -713,8 +723,8 @@ paths:
       parameters:
         - in: path
           name: image_id
-          required: true
           type: string
+          required: true
           description: 이미지 ID
         - in: body
           name: body
@@ -725,8 +735,10 @@ paths:
               status:
                 type: string
                 enum: [pending, confirmed, rejected]
+                description: 예외 상태
               comment:
                 type: string
+                description: 예외 처리 코멘트
       responses:
         200:
           description: 예외 상태 업데이트 성공
@@ -735,9 +747,10 @@ paths:
             properties:
               message:
                 type: string
-                example: "예외 상태가 업데이트되었습니다"
         400:
           description: 잘못된 요청
+          schema:
+            $ref: '#/definitions/Error'
 
   /exception/bulk-update:
     post:
@@ -770,10 +783,13 @@ paths:
             properties:
               message:
                 type: string
-              modified_count:
-                type: integer
+              data:
+                type: object
+                properties:
+                  modified_count:
+                    type: integer
 
-  # Favorite 관련 엔드포인트
+  # Favorite API
   /favorite/{image_id}:
     post:
       tags:
@@ -784,8 +800,8 @@ paths:
       parameters:
         - in: path
           name: image_id
-          required: true
           type: string
+          required: true
           description: 이미지 ID
       responses:
         200:
@@ -802,6 +818,8 @@ paths:
                     type: boolean
         404:
           description: 이미지를 찾을 수 없음
+          schema:
+            $ref: '#/definitions/Error'
 
   /favorite/bulk:
     post:
@@ -840,6 +858,113 @@ paths:
                     type: boolean
         400:
           description: 잘못된 요청
+
+  # Project API
+  /project:
+    get:
+      tags:
+        - Project
+      summary: 프로젝트 목록 조회
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: status
+          type: string
+          required: false
+          description: 프로젝트 상태 필터
+        - in: query
+          name: page
+          type: integer
+          required: false
+          default: 1
+        - in: query
+          name: per_page
+          type: integer
+          required: false
+          default: 10
+      responses:
+        200:
+          description: 프로젝트 목록 조회 성공
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+              data:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: '#/definitions/Project'
+              meta:
+                $ref: '#/definitions/PaginationMeta'
+
+    post:
+      tags:
+        - Project
+      summary: 프로젝트 생성
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              project_name:
+                type: string
+              start_date:
+                type: string
+                format: date
+              end_date:
+                type: string
+                format: date
+              address:
+                type: string
+              manager_organization:
+                type: string
+              memo:
+                type: string
+      responses:
+        200:
+          description: 프로젝트 생성 성공
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+              data:
+                $ref: '#/definitions/Project'
+
+  /project/check-name:
+    get:
+      tags:
+        - Project
+      summary: 프로젝트 이름 중복 확인
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: name
+          type: string
+          required: true
+          description: 확인할 프로젝트 이름
+      responses:
+        200:
+          description: 중복 확인 완료
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+              data:
+                type: object
+                properties:
+                  exists:
+                    type: boolean
 
 definitions:
   ProcessedImage:
@@ -1009,14 +1134,64 @@ definitions:
   Error:
     type: object
     properties:
-      status:
-        type: integer
       message:
+        type: string
+      error_type:
         type: string
 
   ExceptionStatus:
     type: string
     enum: [pending, confirmed, rejected]
+    description: 예외 처리 상태
+
+  Project:
+    type: object
+    properties:
+      _id:
+        type: string
+      project_name:
+        type: string
+      start_date:
+        type: string
+        format: date
+      end_date:
+        type: string
+        format: date
+      address:
+        type: string
+      manager_name:
+        type: string
+      manager_email:
+        type: string
+      manager_organization:
+        type: string
+      memo:
+        type: string
+      status:
+        type: string
+        enum: ['준비 중', '준비 완료']
+      progress:
+        type: integer
+      created_at:
+        type: string
+        format: date-time
+      created_by:
+        type: string
+      updated_at:
+        type: string
+        format: date-time
+
+  PaginationMeta:
+    type: object
+    properties:
+      total:
+        type: integer
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total_pages:
+        type: integer
 
 components:
   securitySchemes:
