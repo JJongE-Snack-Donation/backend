@@ -24,7 +24,7 @@ def admin_login() -> Tuple[Dict[str, Any], int]:
                 error_type="validation_error"
             )
             
-        admin = db.admins.find_one({'username': username})
+        admin = db.users.find_one({'username': username})
         if not admin or not check_password_hash(admin['password'], password):
             return handle_exception(
                 Exception(MESSAGES['error']['invalid_credentials']),
@@ -42,6 +42,7 @@ def admin_login() -> Tuple[Dict[str, Any], int]:
                 'access_token': access_token,
                 'admin': {
                     'username': admin['username'],
+                    'email': admin['email'],
                     'role': 'admin'
                 }
             }
