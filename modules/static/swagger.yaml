@@ -242,30 +242,30 @@ paths:
           description: 이미지를 찾을 수 없음
 
   # Search 관련 엔드포인트
-  /images/search:
+  /inspection/normal/search:
     get:
       tags:
         - Search
-      summary: 이미지 검색
+      summary: 일반 검수 이미지 검색
       security:
         - Bearer: []
       parameters:
+        - in: query
+          name: project_name
+          type: string
+          description: 프로젝트 이름
         - in: query
           name: date
           type: string
           description: 검색할 날짜 (YYYY-MM-DD)
         - in: query
-          name: name
+          name: serial_number
           type: string
-          description: 파일명
+          description: 카메라 시리얼 번호
         - in: query
-          name: tag
+          name: species
           type: string
-          description: 태그
-        - in: query
-          name: location
-          type: string
-          description: 위치
+          description: 동물 종
         - in: query
           name: page
           type: integer
@@ -280,25 +280,129 @@ paths:
           schema:
             type: object
             properties:
-              status:
-                type: integer
-              images:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    imageId:
-                      type: string
-                    imageUrl:
-                      type: string
-                    date:
-                      type: string
-                    name:
-                      type: string
-                    tag:
-                      type: string
-                    location:
-                      type: string
+              message:
+                type: string
+              data:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        filename:
+                          type: string
+                        thumbnail:
+                          type: string
+                        date:
+                          type: string
+                        serial_number:
+                          type: string
+                        species:
+                          type: string
+                        project_name:
+                          type: string
+                        count:
+                          type: integer
+                        event_number:
+                          type: integer
+                        is_classified:
+                          type: boolean
+                          default: true
+              meta:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  per_page:
+                    type: integer
+                  total_pages:
+                    type: integer
+
+  /inspection/exception/search:
+    get:
+      tags:
+        - Search
+      summary: 예외 검수 이미지 검색
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: project_name
+          type: string
+          description: 프로젝트 이름
+        - in: query
+          name: date
+          type: string
+          description: 검색할 날짜 (YYYY-MM-DD)
+        - in: query
+          name: serial_number
+          type: string
+          description: 카메라 시리얼 번호
+        - in: query
+          name: exception_status
+          type: string
+          enum: [pending, confirmed, rejected]
+          description: 예외 상태
+        - in: query
+          name: page
+          type: integer
+          default: 1
+        - in: query
+          name: per_page
+          type: integer
+          default: 20
+      responses:
+        200:
+          description: 검색 성공
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+              data:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        filename:
+                          type: string
+                        thumbnail:
+                          type: string
+                        date:
+                          type: string
+                        serial_number:
+                          type: string
+                        project_name:
+                          type: string
+                        exception_status:
+                          type: string
+                          enum: [pending, confirmed, rejected]
+                        event_number:
+                          type: integer
+                        is_classified:
+                          type: boolean
+                          default: false
+              meta:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  per_page:
+                    type: integer
+                  total_pages:
+                    type: integer
 
   # Download 관련 엔드포인트
   /download/single/{image_id}:

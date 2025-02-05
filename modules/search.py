@@ -61,7 +61,8 @@ def search_normal_inspection():
                 'BestClass': 1,
                 'ProjectInfo': 1,
                 'Count': 1,
-                'evtnum': 1
+                'evtnum': 1,
+                'is_classified': 1
             }
         ).skip((page - 1) * per_page).limit(per_page))
         
@@ -75,7 +76,8 @@ def search_normal_inspection():
                 "species": img.get('BestClass', '미확인'),
                 "project_name": img.get('ProjectInfo', {}).get('ProjectName', ''),
                 "count": img.get('Count', 0),
-                "event_number": img.get('evtnum', 0)
+                "event_number": img.get('evtnum', 0),
+                "is_classified": img.get('is_classified', True)
             } for img in images]
         }
         
@@ -136,7 +138,8 @@ def search_exception_inspection():
                 'SerialNumber': 1,
                 'ProjectInfo': 1,
                 'exception_status': 1,
-                'evtnum': 1
+                'evtnum': 1,
+                'is_classified': 1
             }
         ).skip((page - 1) * per_page).limit(per_page))
         
@@ -149,7 +152,8 @@ def search_exception_inspection():
                 "serial_number": img.get('SerialNumber', ''),
                 "project_name": img.get('ProjectInfo', {}).get('ProjectName', ''),
                 "exception_status": img.get('exception_status', 'pending'),
-                "event_number": img.get('evtnum', 0)
+                "event_number": img.get('evtnum', 0),
+                "is_classified": img.get('is_classified', False)
             } for img in images]
         }
         
