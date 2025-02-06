@@ -57,13 +57,18 @@ GROUP_TIME_LIMIT = 5
 MESSAGES = {
     'success': {
         'login': '로그인 성공',
+        'logout': '로그아웃 성공',
         'register': '회원가입 성공',
+        'token_valid': '유효한 토큰입니다',
+        'search': '검색 성공',
         'upload': '파일 업로드 성공',
         'delete': '파일 삭제 성공'
     },
     'error': {
         'invalid_request': '잘못된 요청입니다',
-        'invalid_credentials': '아이디 또는 비밀번호가 잘못되었습니다',
+        'invalid_credentials': '잘못된 인증 정보입니다',
+        'invalid_token': '유효하지 않은 토큰입니다',
+        'auth_error': '인증 오류가 발생했습니다',
         'user_exists': '이미 존재하는 사용자입니다',
         'not_found': '리소스를 찾을 수 없습니다',
         'unauthorized': '인증이 필요합니다',
