@@ -3,7 +3,8 @@ from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identi
 from datetime import timedelta
 from werkzeug.security import check_password_hash
 from typing import Tuple, Dict, Any
-
+import time
+from flask_jwt_extended import decode_token
 from .database import db
 from .utils.response import standard_response, handle_exception
 from .utils.constants import MESSAGES, JWT_ACCESS_TOKEN_EXPIRES
@@ -76,10 +77,20 @@ def verify_admin() -> Tuple[Dict[str, Any], int]:
 @admin_login_bp.route('/logout', methods=['POST'])
 @jwt_required()
 def admin_logout():
-    """관리자 로그아웃 API"""
     try:
-        return standard_response(MESSAGES['success']['logout'])
+        # Authorization 헤더 출력
+        auth_header = request.headers.get('Authorization')
+
+        current_user = get_jwt_identity()
+
+        # 로그아웃 성공 시 응답
+        return standard_response(
+            message="로그아웃 성공",  # 직접 메시지 지정
+            status=200
+        )
+        
     except Exception as e:
+        print(f"로그아웃 에러: {str(e)}")
         return handle_exception(e, error_type="auth_error")
 
 @admin_login_bp.route('/check-auth', methods=['GET'])
