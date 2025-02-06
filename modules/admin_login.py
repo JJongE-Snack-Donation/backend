@@ -78,10 +78,6 @@ def verify_admin() -> Tuple[Dict[str, Any], int]:
 @jwt_required()
 def admin_logout():
     try:
-        # Authorization 헤더 출력
-        auth_header = request.headers.get('Authorization')
-
-        current_user = get_jwt_identity()
 
         # 로그아웃 성공 시 응답
         return standard_response(
