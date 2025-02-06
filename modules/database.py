@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash
 from datetime import datetime
 import os
 from bson import ObjectId
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any, Binary
 from .utils.constants import MONGODB_URI, DB_NAME
 
 # MongoDB 연결
@@ -73,6 +73,24 @@ def init_db():
             db.species.insert_many(default_species)
             print("기본 멸종위기종 데이터 생성 완료!")
             
+        # failed_results 컬렉션 초기화
+        if 'failed_results' not in db.list_collection_names():
+            db.create_collection('failed_results')
+            db.failed_results.create_index([('Image_id', ASCENDING)], unique=True)
+            print("Failed Results 컬렉션 초기화 완료!")
+
+        # raw_images 컬렉션 초기화
+        if 'raw_images' not in db.list_collection_names():
+            db.create_collection('raw_images')
+            db.raw_images.create_index([('filename', ASCENDING)], unique=True)
+            print("Raw Images 컬렉션 초기화 완료!")
+
+        # detect_images 컬렉션 초기화
+        if 'detect_images' not in db.list_collection_names():
+            db.create_collection('detect_images')
+            db.detect_images.create_index([('Image_id', ASCENDING)], unique=True)
+            print("Detect Images 컬렉션 초기화 완료!")
+
         print("데이터베이스 초기화 완료!")
         
     except Exception as e:
@@ -80,12 +98,12 @@ def init_db():
         raise e
 
 # 컬렉션 스키마 정의 (문서화 목적)
-COLLECTION_SCHEMAS = {
+COLLECTION_SCHEMAS= {
     'users': {
-        'username': str,  # 사용자 아이디
-        'password': str,  # 해시된 비밀번호
-        'email': str,    # 이메일 주소 추가
-        'role': str,     # 권한 (admin/user)
+        'username': str,  
+        'password': str,  
+        'email': str,    
+        'role': str,     
         'created_at': datetime,
         'last_login': datetime
     },
@@ -110,18 +128,18 @@ COLLECTION_SCHEMAS = {
         '__v': int,                   # 버전 정보
 
         # AI 분석 결과 필드
-        'Infos': [{                   # AI 탐지 결과
-            'best_class': str,        # 종 이름
-            'best_probability': float, # 확률
-            'name': str,              # 객체 이름
-            'bbox': List[float],      # 바운딩 박스 좌표
-            'new_bbox': List[float]   # 새로운 바운딩 박스 좌표
+        'Infos': [{                   # 가공된 AI 탐지 결과
+            'best_class': str,        
+            'best_probability': float, 
+            'name': str,              
+            'bbox': List[float],      
+            'new_bbox': List[float]   
         }],
-        'Count': int,                 # 개체 수
-        'BestClass': str,             # 최종 종 분류
-        'Accuracy': float,            # 정확도
-        'AI_processed': bool,         # AI 처리 여부
-        'AI_process_date': datetime,  # AI 처리 날짜
+        'Count': int,                 
+        'BestClass': str,             
+        'Accuracy': float,            
+        'AI_processed': bool,         
+        'AI_process_date': datetime,   
 
         # 추가 메타데이터
         'UploadDate': datetime,       # 업로드 날짜/시간
@@ -159,6 +177,30 @@ COLLECTION_SCHEMAS = {
         'habitat': str,
         'created_at': datetime,
         'updated_at': datetime
+    },
+    'failed_results': {
+        '_id': ObjectId,              # MongoDB 기본 ID
+        'Image_id': str,              # 이미지 ID
+        'Filename': str,              # 파일명
+        'Status': str,                # 상태
+        'Detection_binaryData_image': Binary,  # 탐지된 이미지 바이너리
+        'Detections': [],             # 빈 배열 (실패시)
+        'Object_counts': Dict,        # 객체 카운트
+        'Reason': str                 # 실패 이유
+    },
+    'raw_images': {
+        '_id': ObjectId,              # MongoDB 기본 ID
+        'filename': str,              # 파일명
+        'data': Binary                # 원본 이미지 바이너리
+    },
+    'detect_images': {
+        '_id': ObjectId,              # MongoDB 기본 ID
+        'Image_id': str,              # 이미지 ID
+        'Filename': str,              # 파일명
+        'Status': str,                # 상태
+        'Detection_binaryData_image': Binary,  # 탐지된 이미지 바이너리
+        'Detections': List,           # 탐지 결과 배열
+        'Object_counts': Dict         # 객체 카운트 객체
     }
 }
 
@@ -361,3 +403,36 @@ def delete_project(project_name):
         return {"message": "프로젝트가 삭제되었습니다"}
     except Exception as e:
         return {"error": str(e)}
+
+def save_failed_result(data: Dict) -> Union[str, None]:
+    try:
+        result = db.failed_results.insert_one(data)
+        return str(result.inserted_id)
+    except Exception as e:
+        print(f"Failed 결과 저장 실패: {str(e)}")
+        return None
+
+def save_raw_image(data: Dict) -> Union[str, None]:
+    try:
+        result = db.raw_images.insert_one(data)
+        return str(result.inserted_id)
+    except Exception as e:
+        print(f"Raw 이미지 저장 실패: {str(e)}")
+        return None
+
+def save_detect_image(data: Dict) -> Union[str, None]:
+    try:
+        result = db.detect_images.insert_one(data)
+        return str(result.inserted_id)
+    except Exception as e:
+        print(f"Detect 이미지 저장 실패: {str(e)}")
+        return None
+
+def get_failed_result(image_id: str) -> Optional[Dict]:
+    return db.failed_results.find_one({'Image_id': image_id})
+
+def get_raw_image(filename: str) -> Optional[Dict]:
+    return db.raw_images.find_one({'filename': filename})
+
+def get_detect_image(image_id: str) -> Optional[Dict]:
+    return db.detect_images.find_one({'Image_id': image_id})
