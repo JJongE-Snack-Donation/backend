@@ -61,15 +61,16 @@ def create_app():
     
     # 블루프린트 등록
     app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
-    app.register_blueprint(admin_login_bp, url_prefix='/admin')
-    app.register_blueprint(classification_bp, url_prefix='/classification')
-    app.register_blueprint(search_bp, url_prefix='/search')
-    app.register_blueprint(exception_bp, url_prefix='/exception')
-    app.register_blueprint(favorite_bp, url_prefix='/favorite')
-    app.register_blueprint(download_bp, url_prefix='/download')
-    app.register_blueprint(image_move_bp, url_prefix='/move')
-    app.register_blueprint(status_bp, url_prefix='/status')
-    app.register_blueprint(project_bp, url_prefix='/project')
-    app.register_blueprint(upload_bp, url_prefix='/files')
+    app.register_blueprint(admin_login_bp)
+    app.register_blueprint(classification_bp)
+    app.register_blueprint(search_bp)
+    app.register_blueprint(exception_bp)
+    app.register_blueprint(favorite_bp)
+    app.register_blueprint(download_bp)
+    app.register_blueprint(image_move_bp)
+    app.register_blueprint(status_bp)
+    app.register_blueprint(project_bp)
+    app.register_blueprint(upload_bp)
+
     
     return app

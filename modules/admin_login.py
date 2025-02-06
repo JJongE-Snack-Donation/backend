@@ -95,6 +95,13 @@ def check_auth():
     """현재 로그인 상태 확인용 엔드포인트"""
     try:
         current_user = get_jwt_identity()
+
+        if not current_user:
+            return handle_exception(
+                Exception("유효하지 않은 토큰입니다."),
+                error_type="auth_error"
+            )
+
         return standard_response(
             "인증 확인 성공",
             data={
@@ -102,5 +109,10 @@ def check_auth():
                 "authenticated": True
             }
         )
+
     except Exception as e:
-        return handle_exception(e, error_type="auth_error")
+        # 명시적으로 예외를 처리하고 적절한 에러 메시지를 반환
+        return handle_exception(
+            e if str(e) else Exception("인증 확인 중 알 수 없는 오류가 발생했습니다."),
+            error_type="auth_error"
+        )
