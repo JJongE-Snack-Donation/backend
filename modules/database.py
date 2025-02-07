@@ -3,7 +3,8 @@ from werkzeug.security import generate_password_hash
 from datetime import datetime
 import os
 from bson import ObjectId
-from typing import Dict, List, Optional, Union, Any, Binary
+from typing import Dict, List, Optional, Union, Any
+from bson.binary import Binary
 from .utils.constants import MONGODB_URI, DB_NAME
 
 # MongoDB 연결
