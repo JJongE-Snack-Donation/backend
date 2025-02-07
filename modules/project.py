@@ -54,32 +54,46 @@ def check_project_name():
             )
 
         exists = db.projects.find_one({'project_name': project_name}) is not None
+        if exists:
+            return standard_response(
+                "중복된 프로젝트 이름입니다.",
+                data={'exists': True},
+                status=409  # 409 Conflict 상태 반환
+            )
+
         return standard_response(
-            "프로젝트 이름 중복 확인 완료",
-            data={'exists': exists}
+            "프로젝트 이름 사용 가능",
+            data={'exists': False}
         )
 
     except Exception as e:
         return handle_exception(e, error_type="db_error")
 
+
 @project_bp.route('/project', methods=['POST'])
 @jwt_required()
 def create_project() -> Tuple[Dict[str, Any], int]:
+    """프로젝트 생성 API"""
     try:
         data = request.get_json()
         current_user = get_jwt_identity()
-        
-        # 사용자 정보 검증
+
+        # 현재 사용자 정보 조회
         user = db.users.find_one({'username': current_user})
         if not user:
-            raise Exception("사용자 정보를 찾을 수 없습니다.")
-        
+            return handle_exception(
+                Exception("사용자 정보를 찾을 수 없습니다"),
+                error_type="validation_error"
+            )
+
         project_name = data.get('project_name')
         start_date = data.get('start_date')
         end_date = data.get('end_date')
         address = data.get('address')
-        
-        # 필수 필드 확인
+        manager_organization = data.get('manager_organization', '')
+        memo = data.get('memo', '')
+
+        # 필수 필드 검증
         required_fields = {
             'project_name': project_name,
             'start_date': start_date,
@@ -88,52 +102,65 @@ def create_project() -> Tuple[Dict[str, Any], int]:
         }
         missing_fields = [field for field, value in required_fields.items() if not value]
         if missing_fields:
-            raise Exception(f"필수 필드 누락: {', '.join(missing_fields)}")
+            return handle_exception(
+                Exception(f"필수 필드가 누락되었습니다: {', '.join(missing_fields)}"),
+                error_type="validation_error"
+            )
 
-        # 날짜 변환
+        # 날짜 검증 및 변환
         try:
             start_date = datetime.strptime(start_date, '%Y-%m-%d')
             end_date = datetime.strptime(end_date, '%Y-%m-%d')
             if end_date < start_date:
-                raise Exception("종료일이 시작일보다 빠를 수 없습니다.")
+                return handle_exception(
+                    Exception("종료일이 시작일보다 빠를 수 없습니다"),
+                    error_type="validation_error"
+                )
         except ValueError:
-            raise Exception("날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)")
+            return handle_exception(
+                Exception("날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)"),
+                error_type="validation_error"
+            )
 
-        # 프로젝트 중복 확인
         if db.projects.find_one({'project_name': project_name}):
-            raise Exception("이미 존재하는 프로젝트명입니다.")
-        
+            return handle_exception(
+                Exception("이미 존재하는 프로젝트명입니다"),
+                error_type="validation_error"
+            )
+
+        # 현재 시각을 생성 시각으로 사용
         creation_time = datetime.utcnow()
-        
-        project = {
+
+        project: Dict[str, Any] = {
             'project_name': project_name,
             'start_date': start_date,
             'end_date': end_date,
             'address': address,
-            'manager_name': user['username'],
+            'manager_name': user['name'],
             'manager_email': user['email'],
-            'status': '준비 중',
+            'manager_organization': manager_organization,
+            'memo': memo,
+            'status': '준비 완료',  # 프로젝트 상태를 '준비 완료'로 설정
+            'progress': 0,
             'created_at': creation_time,
             'created_by': current_user,
             'updated_at': creation_time
         }
 
-        print("프로젝트 데이터 확인:", project)  # 디버그 출력
-
         result = db.projects.insert_one(project)
         project['_id'] = str(result.inserted_id)
 
-        # 응답용 날짜 포맷 변환
+        # 날짜 및 시간 포맷 변환
         project['start_date'] = start_date.strftime('%Y-%m-%d')
         project['end_date'] = end_date.strftime('%Y-%m-%d')
-        project['created_at'] = creation_time.isoformat()
-        project['updated_at'] = creation_time.isoformat()
+        project['created_at'] = project['created_at'].isoformat()
+        project['updated_at'] = project['updated_at'].isoformat()
 
         return standard_response("프로젝트 생성 성공", data=project)
 
     except Exception as e:
-        print(f"에러 발생: {e}")  # 에러 로그 출력
         return handle_exception(e, error_type="db_error")
+
 
 
 
