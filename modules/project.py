@@ -136,7 +136,7 @@ def create_project() -> Tuple[Dict[str, Any], int]:
             'start_date': start_date,
             'end_date': end_date,
             'address': address,
-            'manager_name': user['name'],
+            'manager_name': user['username'],
             'manager_email': user['email'],
             'manager_organization': manager_organization,
             'memo': memo,
