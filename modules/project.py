@@ -169,30 +169,102 @@ def create_project() -> Tuple[Dict[str, Any], int]:
 def update_project(project_id: str) -> Tuple[Dict[str, Any], int]:
     """프로젝트 수정 API"""
     try:
+        print(f"[1] 프로젝트 수정 시작 - 프로젝트 ID: {project_id}")
         data = request.get_json()
-        status = data.get('status')
-        description = data.get('description')
+        print(f"[2] 요청 데이터: {data}")
         
-        update_data: Dict[str, Any] = {'updated_at': datetime.utcnow()}
-        if status and status in PROJECT_STATUSES:
-            update_data['status'] = status
-        if description is not None:
-            update_data['description'] = description
-            
+        current_user = get_jwt_identity()
+        print(f"[3] 현재 사용자: {current_user}")
+
+        # 현재 사용자 정보 조회
+        user = db.users.find_one({'username': current_user})
+        if not user:
+            print(f"[ERROR] 사용자를 찾을 수 없음: {current_user}")
+            return handle_exception(
+                Exception("사용자 정보를 찾을 수 없습니다"),
+                error_type="validation_error"
+            )
+        print(f"[4] 사용자 정보 조회 성공: {user['username']}")
+        
+        # 요청 데이터와 DB 필드 매핑
+        field_mapping = {
+            'project_name': 'project_name',
+            'start_date': 'start_date',
+            'end_date': 'end_date',
+            'address': 'address',
+            'memo': 'memo'
+        }
+        
+        # 업데이트할 데이터 준비
+        update_data: Dict[str, Any] = {
+            'updated_at': datetime.utcnow(),
+            'manager_username': user['username'],
+            'manager_email': user['email']
+        }
+        print(f"[5] 초기 업데이트 데이터: {update_data}")
+        
+        # 매핑된 필드명으로 데이터 변환
+        for client_field, db_field in field_mapping.items():
+            if client_field in data:
+                # 날짜 필드 처리
+                if client_field in ['start_date', 'end_date'] and data[client_field]:
+                    try:
+                        update_data[db_field] = datetime.strptime(data[client_field], '%Y-%m-%d')
+                        print(f"[6] 날짜 필드 변환 성공 - {client_field}: {data[client_field]}")
+                    except ValueError as e:
+                        print(f"[ERROR] 날짜 형식 변환 실패 - {client_field}: {data[client_field]}")
+                        return handle_exception(
+                            Exception("날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)"),
+                            error_type="validation_error"
+                        )
+                else:
+                    update_data[db_field] = data[client_field]
+        
+        print(f"[7] 최종 업데이트 데이터: {update_data}")
+        
+        # 프로젝트 업데이트
         result = db.projects.update_one(
             {'_id': ObjectId(project_id)},
             {'$set': update_data}
         )
+        print(f"[8] 업데이트 결과 - modified_count: {result.modified_count}")
         
         if result.modified_count == 0:
+            print(f"[ERROR] 프로젝트를 찾을 수 없음 - ID: {project_id}")
             return handle_exception(
                 Exception(MESSAGES['error']['not_found']),
                 error_type="validation_error"
             )
             
-        return standard_response("프로젝트가 수정되었습니다")
+        # 업데이트된 프로젝트 정보 조회
+        updated_project = db.projects.find_one({'_id': ObjectId(project_id)})
+        if not updated_project:
+            print(f"[ERROR] 업데이트된 프로젝트 조회 실패 - ID: {project_id}")
+            return handle_exception(
+                Exception("프로젝트 정보를 찾을 수 없습니다"),
+                error_type="db_error"
+            )
+        print(f"[9] 업데이트된 프로젝트 조회 성공")
+            
+        # ObjectId를 문자열로 변환
+        updated_project['_id'] = str(updated_project['_id'])
+        
+        # datetime 객체를 문자열로 변환
+        for date_field in ['start_date', 'end_date', 'created_at', 'updated_at']:
+            if date_field in updated_project and updated_project[date_field]:
+                updated_project[date_field] = updated_project[date_field].isoformat()
+        
+        print(f"[10] 응답 데이터 준비 완료")
+        return standard_response(
+            "프로젝트가 수정되었습니다",
+            data={'project': updated_project}
+        )
         
     except Exception as e:
+        print(f"[ERROR] 예외 발생: {str(e)}")
+        print(f"[ERROR] 예외 타입: {type(e)}")
+        import traceback
+        print(f"[ERROR] 스택 트레이스:\n{traceback.format_exc()}")
         return handle_exception(e, error_type="db_error")
 
 @project_bp.route('/project/<project_id>', methods=['DELETE'])
