@@ -161,11 +161,8 @@ def detect_objects():
 def get_image_for_inspection(image_id: str) -> Tuple[Dict[str, Any], int]:
     """분류된 이미지 검토를 위한 상세 정보 조회"""
     try:
-        # ObjectId 변환
-        object_id = ObjectId(image_id)
-        
-        # 이미지 조회
-        image = db.images.find_one({'_id': object_id, 'AI_processed': True})
+        # 이미지 조회 (Image_id로 직접 조회)
+        image = db.detect_images.find_one({'Image_id': image_id})
         if not image:
             return handle_exception(
                 Exception("AI 처리된 이미지를 찾을 수 없습니다"),
@@ -176,16 +173,11 @@ def get_image_for_inspection(image_id: str) -> Tuple[Dict[str, Any], int]:
         response_data = {
             'ImageDatas': {
                 '_id': str(image['_id']),
-                'FileName': image.get('FileName'),
-                'FilePath': image.get('FilePath'),
-                'ThumnailPath': image.get('ThumnailPath'),
-                'SerialNumber': image.get('SerialNumber'),
-                'UserLabel': image.get('UserLabel'),
-                'DateTimeOriginal': image.get('DateTimeOriginal'),
-                'BestClass': image.get('BestClass'),
-                'Count': image.get('Count'),
-                'Accuracy': image.get('Accuracy'),
-                'inspection_status': image.get('inspection_status', 'pending')
+                'Image_id': image.get('Image_id'),
+                'Filename': image.get('Filename'),
+                'Status': image.get('Status'),
+                'Detections': image.get('Detections', []),
+                'Object_counts': image.get('Object_counts', {})
             }
         }
             
@@ -197,36 +189,4 @@ def get_image_for_inspection(image_id: str) -> Tuple[Dict[str, Any], int]:
     except Exception as e:
         return handle_exception(e, error_type="db_error")
 
-@detection_bp.route('/image/<image_id>/status', methods=['PUT'])
-def update_inspection_status(image_id: str) -> Tuple[Dict[str, Any], int]:
-    """검사 상태 업데이트 API"""
-    try:
-        data = request.get_json()
-        new_status = data.get('status')
-        
-        if not new_status or new_status not in VALID_INSPECTION_STATUSES:
-            return handle_exception(
-                Exception("유효하지 않은 검사 상태입니다"),
-                error_type="validation_error"
-            )
-            
-        result = db.images.update_one(
-            {'_id': ObjectId(image_id)},
-            {
-                '$set': {
-                    'inspection_status': new_status,
-                    'inspection_updated_at': datetime.utcnow()
-                }
-            }
-        )
-        
-        if result.modified_count == 0:
-            return handle_exception(
-                Exception("이미지를 찾을 수 없습니다"),
-                error_type="validation_error"
-            )
-            
-        return standard_response("검사 상태가 업데이트되었습니다")
-        
-    except Exception as e:
-        return handle_exception(e, error_type="db_error") '''
+ '''
