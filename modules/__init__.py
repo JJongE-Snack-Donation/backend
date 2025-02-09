@@ -62,6 +62,7 @@ def create_app():
     # 블루프린트 등록
     app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
     app.register_blueprint(admin_login_bp, url_prefix='/admin')
+    app.register_blueprint(classification_bp)
     app.register_blueprint(search_bp, url_prefix='/search')
     app.register_blueprint(exception_bp)
     app.register_blueprint(favorite_bp)
