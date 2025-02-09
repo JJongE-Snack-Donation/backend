@@ -279,37 +279,22 @@ def update_image_classification(image_id):
         # 응답 데이터 구성
         if is_classified:
             response_data = {
-                # TODO: 딥러닝 분석 결과 필드 (추후 구현)
-                'ImageDatas': {
-                    '_id': str(updated_image['_id']),
-                    'FileName': updated_image.get('FileName'),
-                    'FilePath': updated_image.get('FilePath'),
-                    'OriginalFileName': updated_image.get('OriginalFileName'),
-                    'ThumnailPath': updated_image.get('ThumnailPath'),
-                    'SerialNumber': updated_image.get('SerialNumber'),
-                    'UserLabel': updated_image.get('UserLabel'),
-                    'DateTimeOriginal': updated_image.get('DateTimeOriginal'),
-                    'ProjectInfo': updated_image.get('ProjectInfo'),
-                    'AnalysisFolder': updated_image.get('AnalysisFolder'),
-                    'sessionid': updated_image.get('sessionid'),
-                    'uploadState': updated_image.get('uploadState'),
-                    'serial_filename': updated_image.get('serial_filename')
-                }
+                # 일반 검수로 분류된 이미지 응답 (분류가 된 경우)
+                'FileName': updated_image.get('FileName'),
+                'BestClass': updated_image.get('BestClass'),
+                'Count': updated_image.get('Count'),
+                'ThumnailPath': updated_image.get('ThumnailPath')
             }
         else:
             response_data = {
-                'FileName': updated_image.get('FileName'),
-                'FilePath': updated_image.get('FilePath'),
-                'OriginalFileName': updated_image.get('OriginalFileName'),
-                'ThumnailPath': updated_image.get('ThumnailPath'),
-                'SerialNumber': updated_image.get('SerialNumber'),
-                'UserLabel': updated_image.get('UserLabel'),
-                'DateTimeOriginal': updated_image.get('DateTimeOriginal'),
-                'ProjectInfo': updated_image.get('ProjectInfo'),
-                'AnalysisFolder': updated_image.get('AnalysisFolder'),
-                'sessionid': updated_image.get('sessionid'),
-                'uploadState': updated_image.get('uploadState'),
-                'serial_filename': updated_image.get('serial_filename')
+                # 예외 검수로 분류된 이미지 응답 (분류가 안 된 경우)
+                'ImageDatas': {
+                    '_id': str(updated_image['_id']),
+                    'FileName': updated_image.get('FileName'),
+                    'BestClass': updated_image.get('BestClass'),
+                    'Count': updated_image.get('Count'),
+                    'ThumnailPath': updated_image.get('ThumnailPath')
+                }
             }
             
         return jsonify({
@@ -622,14 +607,12 @@ def get_normal_inspection_groups():
     일반검수 - 이미지 그룹 목록 조회 API
     Query Parameters:
     - serial_number: 카메라 시리얼 번호
-    - camera_label: 카메라 라벨
     - page: 페이지 번호
     - per_page: 페이지당 항목 수
     """
     try:
         # 쿼리 파라미터 처리
         serial_number = request.args.get('serial_number')
-        camera_label = request.args.get('camera_label')
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', PER_PAGE_DEFAULT))
 
@@ -639,8 +622,6 @@ def get_normal_inspection_groups():
         # 선택적 필터 적용
         if serial_number:
             query['SerialNumber'] = serial_number
-        if camera_label:
-            query['UserLabel'] = camera_label
 
         # 이벤트 번호로 그룹핑하여 조회
         pipeline = [
@@ -682,10 +663,10 @@ def get_normal_inspection_groups():
                 "evtnum": group['_id']['evtnum'],
                 "serialNumber": group['_id']['SerialNumber'],
                 "imageCount": group['image_count'],
-                "thumbnail": group['first_image']['ThumnailPath'],
+                "ThumnailPath": group['first_image']['ThumnailPath'],
                 "projectName": group['first_image'].get('ProjectInfo', {}).get('ProjectName'),
-                "dateTime": group['first_image'].get('DateTimeOriginal'),
-                "cameraLabel": group['first_image'].get('UserLabel')
+                "DateTimeOriginal": group['first_image']['DateTimeOriginal'],
+                "exceptionStatus": group['first_image'].get('exception_status', 'pending')
             } for group in groups]
         }
 
@@ -701,7 +682,6 @@ def get_exception_inspection_groups():
     예외검수 - 이미지 그룹 목록 조회 API
     Query Parameters:
     - serial_number: 카메라 시리얼 번호
-    - camera_label: 카메라 라벨
     - exception_status: 예외 상태
     - page: 페이지 번호
     - per_page: 페이지당 항목 수
@@ -709,7 +689,6 @@ def get_exception_inspection_groups():
     try:
         # 쿼리 파라미터 처리
         serial_number = request.args.get('serial_number')
-        camera_label = request.args.get('camera_label')
         exception_status = request.args.get('exception_status')
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', PER_PAGE_DEFAULT))
@@ -720,8 +699,6 @@ def get_exception_inspection_groups():
         # 선택적 필터 적용
         if serial_number:
             query['SerialNumber'] = serial_number
-        if camera_label:
-            query['UserLabel'] = camera_label
         if exception_status:
             query['exception_status'] = exception_status
 
@@ -765,10 +742,9 @@ def get_exception_inspection_groups():
                 "evtnum": group['_id']['evtnum'],
                 "serialNumber": group['_id']['SerialNumber'],
                 "imageCount": group['image_count'],
-                "thumbnail": group['first_image']['ThumnailPath'],
+                "ThumnailPath": group['first_image']['ThumnailPath'],  # DB 필드명 그대로 사용
                 "projectName": group['first_image'].get('ProjectInfo', {}).get('ProjectName'),
-                "dateTime": group['first_image'].get('DateTimeOriginal'),
-                "cameraLabel": group['first_image'].get('UserLabel'),
+                "DateTimeOriginal": group['first_image']['DateTimeOriginal'],  # DB 필드명 그대로 사용
                 "exceptionStatus": group['first_image'].get('exception_status', 'pending')
             } for group in groups]
         }
@@ -1032,5 +1008,40 @@ def batch_update() -> Tuple[Dict[str, Any], int]:
 
         return standard_response(f"{result.modified_count}개의 이미지가 수정되었습니다")
 
+    except Exception as e:
+        return handle_exception(e, error_type="db_error")
+
+@classification_bp.route('/image/<image_id>/inspection-status', methods=['PUT'])
+@jwt_required()  # classification 모듈의 다른 API들처럼 인증 추가
+def update_inspection_status(image_id: str) -> Tuple[Dict[str, Any], int]:
+    """검사 상태 업데이트 API"""
+    try:
+        data = request.get_json()
+        new_status = data.get('status')
+        
+        if not new_status or new_status not in VALID_INSPECTION_STATUSES:
+            return handle_exception(
+                Exception("유효하지 않은 검사 상태입니다"),
+                error_type="validation_error"
+            )
+            
+        result = db.images.update_one(
+            {'_id': ObjectId(image_id)},
+            {
+                '$set': {
+                    'inspection_status': new_status,
+                    'inspection_updated_at': datetime.utcnow()
+                }
+            }
+        )
+        
+        if result.modified_count == 0:
+            return handle_exception(
+                Exception("이미지를 찾을 수 없습니다"),
+                error_type="validation_error"
+            )
+            
+        return standard_response("검사 상태가 업데이트되었습니다")
+        
     except Exception as e:
         return handle_exception(e, error_type="db_error")
