@@ -42,7 +42,7 @@ def generate_status_updates():
 @status_bp.route('/status/stream', methods=['GET'])
 @jwt_required()
 def stream_status():
-    """실시간 상태 스트리밍 API"""
+    """Server-Sent Events (SSE) API"""
     return Response(
         stream_with_context(generate_status_updates()),
         mimetype='text/event-stream',
