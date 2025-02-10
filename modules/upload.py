@@ -49,13 +49,13 @@ def upload_files():
             return standard_response(MESSAGES['error']['invalid_request'], status=400)
 
         files = request.files.getlist('files')
-        project_info = request.form.get('project_info')
+        project_info = request.form.get('project_info')  # FormData에서 project_info 가져오기
         
         if not files or not project_info:
             return standard_response(MESSAGES['error']['invalid_request'], status=400)
 
         try:
-            project_info_json = json.loads(project_info)
+            project_info_json = json.loads(project_info)  # JSON 문자열을 파싱
             project_id = project_info_json.get('project_id')
             if not project_id:
                 return standard_response("프로젝트 ID가 필요합니다", status=400)
@@ -66,10 +66,8 @@ def upload_files():
                 return standard_response("프로젝트를 찾을 수 없습니다", status=400)
                 
             formatted_project_info = {
-                'ProjectInfo': {
-                    'ProjectName': project['project_name'],
-                    'ID': str(project['_id'])
-                }
+                'name': project['project_name'],
+                'id': str(project['_id'])
             }
             
         except json.JSONDecodeError:
@@ -82,7 +80,7 @@ def upload_files():
                     continue
 
                 filename = secure_filename(file.filename)
-                base_path = f"./mnt/{project_id}/analysis"
+                base_path = os.path.abspath(f"./mnt/{project_id}/analysis")  # 절대 경로로 변환
                 file_path = os.path.join(base_path, "source", filename)
                 thumbnail_path = os.path.join(base_path, "thumbnail", f"thum_{filename}")
                 
@@ -93,13 +91,12 @@ def upload_files():
                 if create_thumbnail(file_path, thumbnail_path):
                     uploaded_files.append({
                         'filename': filename,
-                        'path': file_path,
+                        'path': file_path,  # 절대 경로 저장
                         'thumbnail': thumbnail_path,
                         'project_id': project_id
                     })
 
         if uploaded_files:
-            # EXIF 데이터 처리 및 DB 저장
             processed_images = process_images(
                 [f['path'] for f in uploaded_files],
                 formatted_project_info,
@@ -107,19 +104,9 @@ def upload_files():
                 str(datetime.utcnow())
             )
             
-            # processed_images에서 ID와 필요한 정보만 추출
-            response_data = []
-            for idx, processed in enumerate(processed_images):
-                response_data.append({
-                    'id': str(processed['_id']),  # MongoDB ID
-                    'filename': uploaded_files[idx]['filename'],
-                    'thumbnail': uploaded_files[idx]['thumbnail'],
-                    'project_id': project_id
-                })
-            
             return standard_response(
                 MESSAGES['success']['upload'],
-                data={'uploaded_files': response_data}
+                data={'uploaded_files': uploaded_files}
             )
 
         return standard_response(MESSAGES['error']['invalid_request'], status=400)

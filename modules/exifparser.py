@@ -18,12 +18,16 @@ logger = logging.getLogger(__name__)
 def parse_exif_data_batch(image_paths: List[str]) -> List[Dict]:
     """ExifTool을 사용하여 여러 이미지의 EXIF 데이터를 한 번에 추출"""
     try:
+        # Windows 경로를 정규화
+        normalized_paths = [os.path.normpath(path) for path in image_paths]
+        logger.info(f"Processing images with paths: {normalized_paths}")  # 디버깅용 로그
+        
         result = subprocess.run(
-            [EXIFTOOL_PATH, "-j"] + image_paths,
+            [EXIFTOOL_PATH, "-j"] + normalized_paths,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=30  # 30초 타임아웃 설정
+            timeout=30
         )
         
         if result.stderr:
@@ -47,7 +51,7 @@ def parse_exif_data_batch(image_paths: List[str]) -> List[Dict]:
 
 def validate_project_info(project_info: Dict) -> bool:
     """프로젝트 정보 유효성 검사"""
-    required_fields = ['_id', 'name', 'id']
+    required_fields = ['name', 'id']
     return all(field in project_info for field in required_fields)
 
 def create_exif_data(metadata: Dict, image_path: str, project_info: Dict, 
@@ -72,9 +76,9 @@ def create_exif_data(metadata: Dict, image_path: str, project_info: Dict,
         seq = 1
         filename = date_obj.strftime('%Y%m%d-%H%M%S') + f's{seq}.jpg'
 
-        # 파일 경로 구성
-        file_path = f"./mnt/{project_info['_id']}/{analysis_folder}/source/{filename}"
-        thumbnail_path = f"./mnt/{project_info['_id']}/{analysis_folder}/thumbnail/thum_{filename}"
+        # 파일 경로 구성 (project_info['id'] 사용)
+        file_path = os.path.normpath(f"./mnt/{project_info['id']}/{analysis_folder}/source/{filename}")
+        thumbnail_path = os.path.normpath(f"./mnt/{project_info['id']}/{analysis_folder}/thumbnail/thum_{filename}")
 
         return {
             "FileName": filename,
