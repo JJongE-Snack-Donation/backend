@@ -1,4 +1,3 @@
-'''
 from flask import Blueprint, request
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator
@@ -188,5 +187,3 @@ def get_image_for_inspection(image_id: str) -> Tuple[Dict[str, Any], int]:
         
     except Exception as e:
         return handle_exception(e, error_type="db_error")
-
- '''

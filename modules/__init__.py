@@ -16,6 +16,7 @@ from .download import download_bp
 from .status import status_bp
 from .project import project_bp
 from .upload import upload_bp
+from .ai_detection import detection_bp
 from flask_swagger_ui import get_swaggerui_blueprint
 
 class CustomJSONProvider(DefaultJSONProvider):
@@ -71,6 +72,7 @@ def create_app():
     app.register_blueprint(status_bp)
     app.register_blueprint(project_bp)
     app.register_blueprint(upload_bp)
+    app.register_blueprint(detection_bp)
 
     
     return app
