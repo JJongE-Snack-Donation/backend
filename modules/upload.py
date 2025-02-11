@@ -129,47 +129,6 @@ def upload_files():
         logger.error(f"Upload error: {str(e)}")
         return handle_exception(e)
 
-@upload_bp.route('/files/delete/<image_id>', methods=['DELETE'])
-@jwt_required()
-def delete_file(image_id):
-    """파일 삭제 API"""
-    try:
-        # ObjectId 변환 시도
-        try:
-            obj_id = ObjectId(image_id)
-        except:
-            return standard_response("잘못된 이미지 ID 형식입니다", status=400)
-
-        # 먼저 이미지 정보만 조회
-        image = db.images.find_one({'_id': obj_id})
-        
-        if not image:
-            return standard_response(MESSAGES['error']['not_found'], status=404)
-
-        delete_errors = []
-        # 실제 파일 삭제 시도
-        for path_type, path in [('file', image.get('FilePath')), ('thumbnail', image.get('ThumnailPath'))]:
-            if path and os.path.exists(path):
-                try:
-                    os.remove(path)
-                except Exception as e:
-                    delete_errors.append(f"{path_type} 삭제 실패: {str(e)}")
-
-        if delete_errors:
-            # 파일 삭제 실패 시 DB 삭제하지 않고 에러 반환
-            return standard_response(
-                "파일 삭제 실패",
-                status=500,
-                data={'errors': delete_errors}
-            )
-
-        # 파일 삭제 성공 시에만 DB에서 삭제
-        db.images.delete_one({'_id': obj_id})
-        return standard_response(MESSAGES['success']['delete'])
-
-    except Exception as e:
-        logger.error(f"File deletion error: {str(e)}")
-        return handle_exception(e)
 
 @upload_bp.route('/files/bulk-delete', methods=['DELETE'])
 @jwt_required()
