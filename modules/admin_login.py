@@ -52,28 +52,6 @@ def admin_login() -> Tuple[Dict[str, Any], int]:
     except Exception as e:
         return handle_exception(e, error_type="auth_error")
 
-@admin_login_bp.route('/verify', methods=['GET'])
-@jwt_required()
-def verify_admin() -> Tuple[Dict[str, Any], int]:
-    """관리자 토큰 검증 API"""
-    try:
-        current_user = get_jwt_identity()
-        admin = db.admins.find_one({'username': current_user})
-        
-        if not admin:
-            return handle_exception(
-                Exception(MESSAGES['error']['invalid_token']),
-                error_type="auth_error"
-            )
-            
-        return standard_response(
-            MESSAGES['success']['token_valid'],
-            data={'username': admin['username']}
-        )
-        
-    except Exception as e:
-        return handle_exception(e, error_type="auth_error")
-
 @admin_login_bp.route('/logout', methods=['POST'])
 @jwt_required()
 def admin_logout():
