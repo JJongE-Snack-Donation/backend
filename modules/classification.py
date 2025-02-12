@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from bson import ObjectId
+from bson.errors import InvalidId
 from datetime import datetime
 from typing import Tuple, Dict, Any, List, Optional
 from .database import db
@@ -12,6 +13,7 @@ from .database import (
     update_classified_image,    
     update_unclassified_image
 )
+import os
 from .utils.response import standard_response, handle_exception, pagination_meta
 from .utils.constants import PER_PAGE_DEFAULT, VALID_EXCEPTION_STATUSES, MESSAGES, VALID_INSPECTION_STATUSES
 
@@ -176,36 +178,32 @@ def update_classified_image_endpoint(image_id):
     Parameters:
     - image_id: MongoDB _id (ObjectId)
     Request Body:
-    - species: 종 분류 결과
-    - location: 위치 정보
-    - capture_date: 촬영 날짜
-    - metadata: 기타 메타데이터
-    # 위에꺼 다 필요없고 종 이름, 개체수만 들어가면 됨
+    - count: 개체 수 (필수)
+    - best_class: 가장 확신 있는 분류 (필수)
     """
     try:
         object_id = ObjectId(image_id)
         update_data = request.get_json()
-        
+
         # 필수 필드 검증
-        required_fields = ['Infos', 'Count', 'BestClass']
-        if not all(field in update_data for field in required_fields):
+        if 'count' not in update_data or 'best_class' not in update_data:
             return jsonify({'message': 'Missing required fields'}), 400
-            
-        # Infos 배열의 각 항목 검증
-        for info in update_data.get('Infos', []):
-            required_info_fields = ['best_class', 'best_probability', 'name', 'bbox']
-            if not all(field in info for field in required_info_fields):
-                return jsonify({'message': 'Invalid Infos data structure'}), 400
-        
-        result = update_classified_image(object_id, update_data)
-        
-        if result.get('error'):
-            return jsonify({'message': 'Failed to update image', 'error': result['error']}), 500
-            
-        if result.get('updated') == False:
+
+        # MongoDB 업데이트 실행
+        result = db.images.update_one(
+            {'_id': object_id},
+            {'$set': {
+                'count': update_data['count'],
+                'best_class': update_data['best_class']
+            }}
+        )
+
+        # 업데이트 결과 확인
+        if result.matched_count == 0:
             return jsonify({'message': 'Classified image not found'}), 404
-            
+
         return jsonify({'message': 'Image successfully updated'}), 200
+
     except Exception as e:
         return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
 
@@ -217,93 +215,36 @@ def update_unclassified_image_endpoint(image_id):
     Parameters:
     - image_id: MongoDB _id (ObjectId)
     Request Body:
-    - ProjectInfo: 프로젝트 정보
-        - ProjectName: 프로젝트명
-        - ID: 프로젝트 ID
-    - AnalysisFolder: 분석 폴더명
+    - best_class: AI가 예측한 최상의 클래스 (필수)
+    - status: 탐지 상태 (필수)
+    - object_counts: 객체 카운트 정보 (필수)
     """
     try:
         object_id = ObjectId(image_id)
         update_data = request.get_json()
-        
-        # ProjectInfo 구조 검증
-        if 'ProjectInfo' in update_data:
-            required_project_fields = ['ProjectName', 'ID']
-            if not all(field in update_data['ProjectInfo'] for field in required_project_fields):
-                return jsonify({'message': 'Invalid ProjectInfo structure'}), 400
-        
-        result = update_unclassified_image(object_id, update_data)
-        
-        if result.get('error'):
-            return jsonify({'message': 'Failed to update image', 'error': result['error']}), 500
-            
-        if result.get('updated') == False:
+
+        # 필수 필드 검증
+        if 'best_class' not in update_data or 'status' not in update_data or 'object_counts' not in update_data:
+            return jsonify({'message': 'Missing required fields'}), 400
+
+        # MongoDB 업데이트 실행
+        result = db.images.update_one(
+            {'_id': object_id},
+            {'$set': {
+                'best_class': update_data['best_class'],
+                'status': update_data['status'],
+                'object_counts': update_data['object_counts']
+            }}
+        )
+
+        # 업데이트 결과 확인
+        if result.matched_count == 0:
             return jsonify({'message': 'Unclassified image not found'}), 404
-            
-        return jsonify({'message': 'Image successfully updated'}), 200
+
+        return jsonify({'message': 'Unclassified image successfully updated'}), 200
+
     except Exception as e:
         return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
-
-@classification_bp.route('/images/<image_id>/update', methods=['PUT'])
-@jwt_required()
-def update_image_classification(image_id):
-    """이미지 분류 결과 수정 API"""
-    try:
-        # ObjectId 변환
-        object_id = ObjectId(image_id)
-        
-        # 요청 데이터 확인
-        data = request.get_json()
-        is_classified = data.get('is_classified')
-        
-        if is_classified is None:
-            return jsonify({'message': 'Classification status is required'}), 400
-            
-        # 이미지 존재 확인
-        image = db.images.find_one({'_id': object_id})
-        if not image:
-            return jsonify({'message': 'Image not found'}), 404
-            
-        # 분류 상태 업데이트
-        update_result = db.images.update_one(
-            {'_id': object_id},
-            {'$set': {'is_classified': is_classified}}
-        )
-        
-        if update_result.modified_count == 0:
-            return jsonify({'message': 'No changes made'}), 200
-            
-        # 업데이트된 이미지 정보 조회
-        updated_image = db.images.find_one({'_id': object_id})
-        
-        # 응답 데이터 구성
-        if is_classified:
-            response_data = {
-                # 일반 검수로 분류된 이미지 응답 (분류가 된 경우)
-                'FileName': updated_image.get('FileName'),
-                'BestClass': updated_image.get('BestClass'),
-                'Count': updated_image.get('Count'),
-                'ThumnailPath': updated_image.get('ThumnailPath')
-            }
-        else:
-            response_data = {
-                # 예외 검수로 분류된 이미지 응답 (분류가 안 된 경우)
-                'ImageDatas': {
-                    '_id': str(updated_image['_id']),
-                    'FileName': updated_image.get('FileName'),
-                    'BestClass': updated_image.get('BestClass'),
-                    'Count': updated_image.get('Count'),
-                    'ThumnailPath': updated_image.get('ThumnailPath')
-                }
-            }
-            
-        return jsonify({
-            'message': 'Image classification updated successfully',
-            'image': response_data
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'message': 'Update failed', 'error': str(e)}), 400
 
 @classification_bp.route('/images/unclassified', methods=['GET'])
 @jwt_required()
@@ -336,36 +277,49 @@ def get_unclassified_images():
 @classification_bp.route('/images/classified', methods=['GET'])
 @jwt_required()
 def get_classified_images():
-    """종분류 이미지 리스트 조회 API"""
+    """분류된 이미지 리스트 조회 API"""
     try:
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 20))
         sequence = request.args.get('sequenceNumber')
-        
+
         query = {'is_classified': True}
         if sequence:
             query['evtnum'] = int(sequence)
-            
+
         images = list(db.images.find(
             query,
-            {'_id': 1, 'FileName': 1, 'ThumnailPath': 1, 'BestClass': 1, 'evtnum': 1}
+            {
+                '_id': 1, 
+                'FileName': 1, 
+                'ThumnailPath': 1, 
+                'BestClass': 1, 
+                'evtnum': 1, 
+                'DateTimeOriginal': 1, 
+                'ProjectInfo.ID': 1, 
+                'ProjectInfo.ProjectName': 1
+            }
         ).skip((page - 1) * per_page).limit(per_page))
-        
+
         return jsonify({
             "status": 200,
             "images": [{
                 "imageId": str(img['_id']),
+                "imageUrl": img.get('ThumnailPath', ''),
+                "uploadDate": img.get('DateTimeOriginal', ''),  # 통일된 필드
+                "classificationResult": img.get('BestClass', '미확인'),  # 통일된 필드
                 "sequenceNumber": img.get('evtnum'),
-                "imageUrl": img['ThumnailPath'],
-                "classificationResult": img.get('BestClass', '미확인')
+                "projectId": img.get('ProjectInfo', {}).get('ID', ''),  # 프로젝트 ID
+                "projectName": img.get('ProjectInfo', {}).get('ProjectName', '')  # 프로젝트 이름
             } for img in images]
         }), 200
-        
+
     except Exception as e:
         return jsonify({
             "status": 500,
             "message": f"서버 오류: {str(e)}"
         }), 500
+
 
 @classification_bp.route('/images/<image_id>', methods=['GET'])
 @jwt_required()
@@ -378,49 +332,68 @@ def get_image_detail(image_id):
                 "status": 404,
                 "message": "이미지를 찾을 수 없음"
             }), 404
-            
+
+        # 촬영 날짜를 ISO 8601 형식으로 변환
+        capture_date = image.get('DateTimeOriginal')
+        if capture_date:
+            capture_date = capture_date.isoformat()
+
         return jsonify({
             "status": 200,
             "image": {
                 "imageId": str(image['_id']),
                 "classificationResult": image.get('BestClass', '미확인'),
                 "details": {
-                    "captureDate": image.get('DateTimeOriginal'),
-                    "location": image.get('ProjectInfo', {}).get('location'),
+                    "captureDate": capture_date,
+                    "location": image.get('ProjectInfo', {}).get('ProjectName', '위치 정보 없음'),
                     "animalType": image.get('BestClass')
                 }
             }
         }), 200
-        
+
     except Exception as e:
         return jsonify({
             "status": 500,
             "message": f"서버 오류: {str(e)}"
         }), 500
+
 
 @classification_bp.route('/images/<image_id>', methods=['DELETE'])
 @jwt_required()
 def delete_image(image_id):
     """이미지 삭제 API"""
     try:
+        # 이미지 조회
+        image = db.images.find_one({'_id': ObjectId(image_id)})
+        if not image:
+            return jsonify({
+                "status": 404,
+                "message": "이미지를 찾을 수 없음"
+            }), 404
+
+        # 물리적 파일 삭제
+        for file_path in [image.get('FilePath'), image.get('ThumnailPath')]:
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+
+        # DB에서 삭제
         result = db.images.delete_one({'_id': ObjectId(image_id)})
         if result.deleted_count == 0:
             return jsonify({
                 "status": 404,
                 "message": "이미지를 찾을 수 없음"
             }), 404
-            
+
         return jsonify({
             "status": 200,
             "message": "이미지 삭제 성공"
         }), 200
-        
+
     except Exception as e:
         return jsonify({
             "status": 500,
             "message": f"서버 오류: {str(e)}"
         }), 500
-
 @classification_bp.route('/inspection/normal', methods=['GET'])
 @jwt_required()
 def get_normal_inspection_images():
@@ -431,7 +404,6 @@ def get_normal_inspection_images():
     - start_date: 시작 날짜 (YYYY-MM-DD)
     - end_date: 종료 날짜 (YYYY-MM-DD)
     - serial_number: 카메라 시리얼
-    - camera_label: 카메라 라벨
     - species_name: 종 이름
     - page: 페이지 번호 (default: 1)
     - per_page: 페이지당 이미지 수 (default: 20)
@@ -442,13 +414,14 @@ def get_normal_inspection_images():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         serial_number = request.args.get('serial_number')
-        camera_label = request.args.get('camera_label')
         species_name = request.args.get('species_name')
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 20))
 
-        # 쿼리 조건 구성
+        # 기본 쿼리 조건 (분류된 이미지만 조회)
         query = {'is_classified': True}
+
+        # 조건 추가
         if project_name:
             query['ProjectInfo.ProjectName'] = project_name
         if start_date and end_date:
@@ -458,31 +431,36 @@ def get_normal_inspection_images():
             }
         if serial_number:
             query['SerialNumber'] = serial_number
-        if camera_label:
-            query['UserLabel'] = camera_label
         if species_name:
-            query['BestClass'] = species_name
+            query['BestClass'] = species_name  # 종 필터 적용
 
         # 이미지 조회
         total = db.images.count_documents(query)
-        images = list(db.images.find(query)
-                     .skip((page - 1) * per_page)
-                     .limit(per_page))
+        images = list(db.images.find(query, {
+            '_id': 1,
+            'FileName': 1,
+            'ThumnailPath': 1,
+            'DateTimeOriginal': 1,
+            'ProjectInfo.ProjectName': 1,
+            'SerialNumber': 1,
+            'BestClass': 1
+        }).skip((page - 1) * per_page).limit(per_page))
 
         return jsonify({
             "status": 200,
+            "message": "일반 검수 이미지 조회 성공",
             "total": total,
             "page": page,
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page,
             "images": [{
                 "imageId": str(img['_id']),
+                "fileName": img['FileName'],
                 "imageUrl": img['ThumnailPath'],
-                "projectName": img.get('ProjectInfo', {}).get('ProjectName'),
-                "dateTime": img.get('DateTimeOriginal'),
-                "serialNumber": img.get('SerialNumber'),
-                "cameraLabel": img.get('UserLabel'),
-                "speciesName": img.get('BestClass')
+                "uploadDate": img['DateTimeOriginal'],
+                "projectName": img.get('ProjectInfo', {}).get('ProjectName', ''),
+                "serialNumber": img.get('SerialNumber', ''),
+                "speciesName": img.get('BestClass', '미확인')
             } for img in images]
         }), 200
 
@@ -502,10 +480,9 @@ def get_exception_inspection_images():
     - start_date: 시작 날짜 (YYYY-MM-DD)
     - end_date: 종료 날짜 (YYYY-MM-DD)
     - serial_number: 카메라 시리얼
-    - camera_label: 카메라 라벨
     - exception_status: 예외 처리 상태 (pending/processed)
-    - page: 페이지 번호
-    - per_page: 페이지당 이미지 수
+    - page: 페이지 번호 (default: 1)
+    - per_page: 페이지당 이미지 수 (default: 20)
     """
     try:
         # 쿼리 파라미터 파싱
@@ -513,13 +490,14 @@ def get_exception_inspection_images():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         serial_number = request.args.get('serial_number')
-        camera_label = request.args.get('camera_label')
         exception_status = request.args.get('exception_status')
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 20))
 
-        # 쿼리 조건 구성
+        # 기본 쿼리 조건 (미분류된 이미지만 조회)
         query = {'is_classified': False}
+
+        # 필터 추가
         if project_name:
             query['ProjectInfo.ProjectName'] = project_name
         if start_date and end_date:
@@ -529,30 +507,35 @@ def get_exception_inspection_images():
             }
         if serial_number:
             query['SerialNumber'] = serial_number
-        if camera_label:
-            query['UserLabel'] = camera_label
         if exception_status:
-            query['exception_status'] = exception_status
+            query['exception_status'] = exception_status  # 예외 상태 필터 적용
 
         # 이미지 조회
         total = db.images.count_documents(query)
-        images = list(db.images.find(query)
-                     .skip((page - 1) * per_page)
-                     .limit(per_page))
+        images = list(db.images.find(query, {
+            '_id': 1,
+            'FileName': 1,
+            'ThumnailPath': 1,
+            'DateTimeOriginal': 1,
+            'ProjectInfo.ProjectName': 1,
+            'SerialNumber': 1,
+            'exception_status': 1
+        }).skip((page - 1) * per_page).limit(per_page))
 
         return jsonify({
             "status": 200,
+            "message": "예외 검수 이미지 조회 성공",
             "total": total,
             "page": page,
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page,
             "images": [{
                 "imageId": str(img['_id']),
+                "fileName": img['FileName'],
                 "imageUrl": img['ThumnailPath'],
-                "projectName": img.get('ProjectInfo', {}).get('ProjectName'),
-                "dateTime": img.get('DateTimeOriginal'),
-                "serialNumber": img.get('SerialNumber'),
-                "cameraLabel": img.get('UserLabel'),
+                "uploadDate": img['DateTimeOriginal'],
+                "projectName": img.get('ProjectInfo', {}).get('ProjectName', ''),
+                "serialNumber": img.get('SerialNumber', ''),
                 "exceptionStatus": img.get('exception_status', 'pending')
             } for img in images]
         }), 200
@@ -562,6 +545,7 @@ def get_exception_inspection_images():
             "status": 500,
             "message": f"서버 오류: {str(e)}"
         }), 500
+
 
 @classification_bp.route('/images/bulk-delete', methods=['POST'])
 @jwt_required()
@@ -600,231 +584,9 @@ def delete_multiple_images():
             "message": f"서버 오류: {str(e)}"
         }), 500
 
-@classification_bp.route('/inspection/normal/groups', methods=['GET'])
-@jwt_required()
-def get_normal_inspection_groups():
-    """
-    일반검수 - 이미지 그룹 목록 조회 API
-    Query Parameters:
-    - serial_number: 카메라 시리얼 번호
-    - page: 페이지 번호
-    - per_page: 페이지당 항목 수
-    """
-    try:
-        # 쿼리 파라미터 처리
-        serial_number = request.args.get('serial_number')
-        page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', PER_PAGE_DEFAULT))
 
-        # 기본 쿼리 조건
-        query = {'is_classified': True}
-        
-        # 선택적 필터 적용
-        if serial_number:
-            query['SerialNumber'] = serial_number
 
-        # 이벤트 번호로 그룹핑하여 조회
-        pipeline = [
-            {'$match': query},
-            {'$sort': {'DateTimeOriginal': 1}},
-            {'$group': {
-                '_id': {
-                    'evtnum': '$evtnum',
-                    'SerialNumber': '$SerialNumber'
-                },
-                'first_image': {'$first': '$$ROOT'},
-                'image_count': {'$sum': 1},
-                'DateTimeOriginal': {'$first': '$DateTimeOriginal'}
-            }},
-            {'$sort': {'DateTimeOriginal': -1}},
-            {'$skip': (page - 1) * per_page},
-            {'$limit': per_page}
-        ]
-
-        groups = list(db.images.aggregate(pipeline))
-        
-        # 전체 그룹 수 계산
-        total_groups = len(list(db.images.aggregate([
-            {'$match': query},
-            {'$group': {
-                '_id': {
-                    'evtnum': '$evtnum',
-                    'SerialNumber': '$SerialNumber'
-                }
-            }}
-        ])))
-
-        response_data = {
-            "total": total_groups,
-            "page": page,
-            "per_page": per_page,
-            "total_pages": (total_groups + per_page - 1) // per_page,
-            "groups": [{
-                "evtnum": group['_id']['evtnum'],
-                "serialNumber": group['_id']['SerialNumber'],
-                "imageCount": group['image_count'],
-                "ThumnailPath": group['first_image']['ThumnailPath'],
-                "projectName": group['first_image'].get('ProjectInfo', {}).get('ProjectName'),
-                "DateTimeOriginal": group['first_image']['DateTimeOriginal'],
-                "exceptionStatus": group['first_image'].get('exception_status', 'pending')
-            } for group in groups]
-        }
-
-        return standard_response("그룹 목록 조회 성공", data=response_data)
-
-    except Exception as e:
-        return handle_exception(e)
-
-@classification_bp.route('/inspection/exception/groups', methods=['GET'])
-@jwt_required()
-def get_exception_inspection_groups():
-    """
-    예외검수 - 이미지 그룹 목록 조회 API
-    Query Parameters:
-    - serial_number: 카메라 시리얼 번호
-    - exception_status: 예외 상태
-    - page: 페이지 번호
-    - per_page: 페이지당 항목 수
-    """
-    try:
-        # 쿼리 파라미터 처리
-        serial_number = request.args.get('serial_number')
-        exception_status = request.args.get('exception_status')
-        page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', PER_PAGE_DEFAULT))
-
-        # 기본 쿼리 조건
-        query = {'is_classified': False}
-        
-        # 선택적 필터 적용
-        if serial_number:
-            query['SerialNumber'] = serial_number
-        if exception_status:
-            query['exception_status'] = exception_status
-
-        # evtnum 기준으로 그룹핑하여 조회
-        pipeline = [
-            {'$match': query},
-            {'$sort': {'DateTimeOriginal': 1}},
-            {'$group': {
-                '_id': {
-                    'evtnum': '$evtnum',
-                    'SerialNumber': '$SerialNumber'
-                },
-                'first_image': {'$first': '$$ROOT'},
-                'image_count': {'$sum': 1},
-                'DateTimeOriginal': {'$first': '$DateTimeOriginal'}
-            }},
-            {'$sort': {'DateTimeOriginal': -1}},
-            {'$skip': (page - 1) * per_page},
-            {'$limit': per_page}
-        ]
-
-        groups = list(db.images.aggregate(pipeline))
-        
-        # 전체 그룹 수 계산
-        total_groups = len(list(db.images.aggregate([
-            {'$match': query},
-            {'$group': {
-                '_id': {
-                    'evtnum': '$evtnum',
-                    'SerialNumber': '$SerialNumber'
-                }
-            }}
-        ])))
-
-        response_data = {
-            "total": total_groups,
-            "page": page,
-            "per_page": per_page,
-            "total_pages": (total_groups + per_page - 1) // per_page,
-            "groups": [{
-                "evtnum": group['_id']['evtnum'],
-                "serialNumber": group['_id']['SerialNumber'],
-                "imageCount": group['image_count'],
-                "ThumnailPath": group['first_image']['ThumnailPath'],  # DB 필드명 그대로 사용
-                "projectName": group['first_image'].get('ProjectInfo', {}).get('ProjectName'),
-                "DateTimeOriginal": group['first_image']['DateTimeOriginal'],  # DB 필드명 그대로 사용
-                "exceptionStatus": group['first_image'].get('exception_status', 'pending')
-            } for group in groups]
-        }
-
-        return standard_response("그룹 목록 조회 성공", data=response_data)
-
-    except Exception as e:
-        return handle_exception(e)
-
-@classification_bp.route('/inspection/normal/group-images/<serial_number>/<int:evtnum>', methods=['GET'])
-@jwt_required()
-def get_normal_group_images(serial_number, evtnum):
-    """
-    일반검수 - 특정 evtnum 그룹의 이미지들 조회 API
-    Parameters:
-    - serial_number: 카메라 시리얼 번호
-    - evtnum: 이벤트 번호
-    """
-    try:
-        images = list(db.images.find({
-            'SerialNumber': serial_number,
-            'evtnum': evtnum,
-            'is_classified': True
-        }).sort('DateTimeOriginal', 1))
-
-        response_data = {
-            "images": [{
-                "imageId": str(img['_id']),
-                "imageUrl": img['ThumnailPath'],
-                "fileName": img['FileName'],
-                "projectName": img.get('ProjectInfo', {}).get('ProjectName'),
-                "dateTime": img.get('DateTimeOriginal'),
-                "serialNumber": img.get('SerialNumber'),
-                "cameraLabel": img.get('UserLabel'),
-                "bestClass": img.get('BestClass'),
-                "count": img.get('Count'),
-                "is_favorite": img.get('is_favorite', False)
-            } for img in images]
-        }
-
-        return standard_response("이미지 목록 조회 성공", data=response_data)
-
-    except Exception as e:
-        return handle_exception(e)
-
-@classification_bp.route('/inspection/exception/group-images/<serial_number>/<int:evtnum>', methods=['GET'])
-@jwt_required()
-def get_exception_group_images(serial_number, evtnum):
-    """
-    예외검수 - 특정 evtnum 그룹의 이미지들 조회 API
-    Parameters:
-    - serial_number: 카메라 시리얼 번호
-    - evtnum: 이벤트 번호
-    """
-    try:
-        images = list(db.images.find({
-            'SerialNumber': serial_number,
-            'evtnum': evtnum,
-            'is_classified': False
-        }).sort('DateTimeOriginal', 1))
-
-        response_data = {
-            "images": [{
-                "imageId": str(img['_id']),
-                "imageUrl": img['ThumnailPath'],
-                "fileName": img['FileName'],
-                "projectName": img.get('ProjectInfo', {}).get('ProjectName'),
-                "dateTime": img.get('DateTimeOriginal'),
-                "serialNumber": img.get('SerialNumber'),
-                "cameraLabel": img.get('UserLabel'),
-                "exceptionStatus": img.get('exception_status', 'pending'),
-                "is_favorite": img.get('is_favorite', False),
-                "inspection_complete": img.get('inspection_complete', False)
-            } for img in images]
-        }
-
-        return standard_response("이미지 목록 조회 성공", data=response_data)
-
-    except Exception as e:
-        return handle_exception(e)
+from bson.errors import InvalidId
 
 @classification_bp.route('/inspection/normal/bulk-update', methods=['POST'])
 @jwt_required()
@@ -844,33 +606,53 @@ def update_normal_inspection_bulk():
         data = request.get_json()
         image_ids = data.get('image_ids', [])
         updates = data.get('updates', {})
-        
+
         if not image_ids:
             return standard_response("이미지 ID 목록이 필요합니다", status=400)
 
-        # ObjectId로 변환
-        object_ids = [ObjectId(id) for id in image_ids]
-        
-        # 업데이트할 필드 검증
-        valid_fields = {'BestClass', 'Count'}
-        update_dict = {k: v for k, v in updates.items() if k in valid_fields}
-        
+        if not isinstance(updates, dict):
+            return standard_response("업데이트 데이터 형식이 잘못되었습니다", status=400)
+
+        # ObjectId 변환 (유효성 검사)
+        object_ids = []
+        invalid_ids = []
+        for img_id in image_ids:
+            try:
+                object_ids.append(ObjectId(img_id))
+            except InvalidId:
+                invalid_ids.append(img_id)
+
+        if invalid_ids:
+            return standard_response(f"유효하지 않은 이미지 ID: {invalid_ids}", status=400)
+
+        # 업데이트할 필드 검증 (타입 체크 추가)
+        valid_fields = {'BestClass': str, 'Count': int}
+        update_dict = {}
+        for field, value in updates.items():
+            if field in valid_fields:
+                expected_type = valid_fields[field]
+                if isinstance(value, expected_type):
+                    update_dict[field] = value
+                else:
+                    return standard_response(f"'{field}' 필드는 {expected_type.__name__} 타입이어야 합니다", status=400)
+
         if not update_dict:
             return standard_response("수정할 내용이 없습니다", status=400)
 
         # 다중 이미지 업데이트
         result = db.images.update_many(
-            {
-                '_id': {'$in': object_ids},
-                'is_classified': True
-            },
+            {'_id': {'$in': object_ids}, 'is_classified': True},
             {'$set': update_dict}
         )
 
-        return standard_response(f"{result.modified_count}개의 이미지가 수정되었습니다")
+        if result.matched_count == 0:
+            return standard_response("해당 조건에 맞는 이미지가 없습니다", status=404)
+
+        return standard_response(f"{result.modified_count}개의 이미지가 수정되었습니다", data={"modified_count": result.modified_count})
 
     except Exception as e:
         return handle_exception(e)
+
 
 @classification_bp.route('/inspection/exception/bulk-update', methods=['POST'])
 @jwt_required()
@@ -890,37 +672,53 @@ def update_exception_inspection_bulk():
         data = request.get_json()
         image_ids = data.get('image_ids', [])
         updates = data.get('updates', {})
-        
+
         if not image_ids:
             return standard_response("이미지 ID 목록이 필요합니다", status=400)
 
-        # ObjectId로 변환
-        object_ids = [ObjectId(id) for id in image_ids]
-        
-        # 업데이트할 필드 검증
-        valid_fields = {'exception_status', 'Count'}
-        update_dict = {k: v for k, v in updates.items() if k in valid_fields}
-        
+        # ObjectId 변환 (유효성 검사)
+        object_ids = []
+        invalid_ids = []
+        for img_id in image_ids:
+            try:
+                object_ids.append(ObjectId(img_id))
+            except Exception:  # bson.errors.InvalidId 사용 가능
+                invalid_ids.append(img_id)
+
+        if invalid_ids:
+            return standard_response(f"유효하지 않은 이미지 ID: {invalid_ids}", status=400)
+
+        # 업데이트할 필드 검증 (타입 체크 추가)
+        valid_fields = {'exception_status': str, 'Count': int}
+        update_dict = {}
+        for field, value in updates.items():
+            if field in valid_fields and isinstance(value, valid_fields[field]):
+                update_dict[field] = value
+            else:
+                return standard_response(f"'{field}' 필드는 {valid_fields[field].__name__} 타입이어야 합니다", status=400)
+
         if not update_dict:
             return standard_response("수정할 내용이 없습니다", status=400)
 
-        # exception_status 값 검증
-        if 'exception_status' in update_dict and update_dict['exception_status'] not in VALID_EXCEPTION_STATUSES:
+        # exception_status 값 검증 (get() 활용)
+        if update_dict.get("exception_status") and update_dict["exception_status"] not in VALID_EXCEPTION_STATUSES:
             return standard_response("유효하지 않은 예외 상태입니다", status=400)
 
         # 다중 이미지 업데이트
         result = db.images.update_many(
-            {
-                '_id': {'$in': object_ids},
-                'is_classified': False
-            },
+            {'_id': {'$in': object_ids}, 'is_classified': False},
             {'$set': update_dict}
         )
+
+        if result.matched_count == 0:
+            return standard_response("수정할 이미지가 없습니다", status=404)
 
         return standard_response(f"{result.modified_count}개의 이미지가 수정되었습니다")
 
     except Exception as e:
         return handle_exception(e)
+
+
 
 @classification_bp.route('/classification/batch', methods=['POST'])
 @jwt_required()
@@ -961,10 +759,10 @@ def batch_classify() -> Tuple[Dict[str, Any], int]:
     except Exception as e:
         return handle_exception(e, error_type="db_error")
 
-@classification_bp.route('/classification/batch-update', methods=['POST'])
+@classification_bp.route('/images/batch-update', methods=['POST'])
 @jwt_required()
 def batch_update() -> Tuple[Dict[str, Any], int]:
-    """이미지 일괄 업데이트 API"""
+    """분류된 이미지 포함 해서 속성 일괄 업데이트 API"""
     try:
         data = request.get_json()
         image_ids = data.get('image_ids', [])
@@ -1012,21 +810,33 @@ def batch_update() -> Tuple[Dict[str, Any], int]:
         return handle_exception(e, error_type="db_error")
 
 @classification_bp.route('/image/<image_id>/inspection-status', methods=['PUT'])
-@jwt_required()  # classification 모듈의 다른 API들처럼 인증 추가
+@jwt_required()
 def update_inspection_status(image_id: str) -> Tuple[Dict[str, Any], int]:
     """검사 상태 업데이트 API"""
     try:
         data = request.get_json()
         new_status = data.get('status')
-        
-        if not new_status or new_status not in VALID_INSPECTION_STATUSES:
+
+        # 유효한 검사 상태인지 확인
+        valid_statuses = set(VALID_INSPECTION_STATUSES) if isinstance(VALID_INSPECTION_STATUSES, (list, set)) else set()
+        if not new_status or new_status not in valid_statuses:
             return handle_exception(
                 Exception("유효하지 않은 검사 상태입니다"),
                 error_type="validation_error"
             )
-            
+
+        # ObjectId 변환 예외 처리
+        try:
+            object_id = ObjectId(image_id)
+        except InvalidId:
+            return handle_exception(
+                Exception("유효하지 않은 이미지 ID 형식입니다"),
+                error_type="validation_error"
+            )
+
+        # DB 업데이트
         result = db.images.update_one(
-            {'_id': ObjectId(image_id)},
+            {'_id': object_id},
             {
                 '$set': {
                     'inspection_status': new_status,
@@ -1034,14 +844,21 @@ def update_inspection_status(image_id: str) -> Tuple[Dict[str, Any], int]:
                 }
             }
         )
-        
-        if result.modified_count == 0:
+
+        # 업데이트 결과 확인
+        if result.matched_count == 0:
             return handle_exception(
                 Exception("이미지를 찾을 수 없습니다"),
-                error_type="validation_error"
+                error_type="not_found"
             )
-            
-        return standard_response("검사 상태가 업데이트되었습니다")
-        
+
+        # 수정된 이미지 정보 조회
+        updated_image = db.images.find_one({'_id': object_id}, {'inspection_status': 1, '_id': 1})
+
+        return standard_response(
+            "검사 상태가 업데이트되었습니다",
+            data={"image_id": str(updated_image['_id']), "inspection_status": updated_image['inspection_status']}
+        )
+
     except Exception as e:
         return handle_exception(e, error_type="db_error")
