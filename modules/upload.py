@@ -50,7 +50,7 @@ def upload_files():
 
         files = request.files.getlist('files')
         project_info = request.form.get('project_info')
-        
+
         if not files or not project_info:
             return standard_response(MESSAGES['error']['invalid_request'], status=400)
 
@@ -59,33 +59,34 @@ def upload_files():
             project_id = project_info_json.get('project_id')
             if not project_id:
                 return standard_response("프로젝트 ID가 필요합니다", status=400)
-                
+
             project = db.projects.find_one({'_id': ObjectId(project_id)})
             if not project:
                 return standard_response("프로젝트를 찾을 수 없습니다", status=400)
-            
+
         except json.JSONDecodeError:
             return standard_response("잘못된 프로젝트 정보 형식입니다", status=400)
 
         uploaded_files = []
-        uploaded_image_ids = []  # MongoDB에 저장된 이미지 ID 목록
+        uploaded_image_ids = []
+        skipped_files = []  # 업로드 실패한 파일 목록
 
         for file in files:
             if file and allowed_file(file.filename):
                 if file.content_length and file.content_length > MAX_FILE_SIZE:
+                    skipped_files.append(file.filename)
                     continue
 
                 filename = secure_filename(file.filename)
                 base_path = os.path.abspath(f"./mnt/{project_id}/analysis")
                 file_path = os.path.join(base_path, "source", filename)
                 thumbnail_path = os.path.join(base_path, "thumbnail", f"thum_{filename}")
-                
+
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
                 os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
                 file.save(file_path)
-                
+
                 if create_thumbnail(file_path, thumbnail_path):
-                    # DB에 이미지 정보 저장
                     image_doc = {
                         'FileName': filename,
                         'FilePath': file_path,
@@ -101,11 +102,11 @@ def upload_files():
                         'exif_parsed': False,
                         'UploadDate': datetime.utcnow()
                     }
-                    
+
                     result = db.images.insert_one(image_doc)
                     image_id = str(result.inserted_id)
                     uploaded_image_ids.append(image_id)
-                    
+
                     uploaded_files.append({
                         'filename': filename,
                         'path': file_path,
@@ -114,20 +115,22 @@ def upload_files():
                         'image_id': image_id
                     })
 
-        if uploaded_files:
-            return standard_response(
-                MESSAGES['success']['upload'],
-                data={
-                    'uploaded_files': uploaded_files,
-                    'image_ids': uploaded_image_ids
-                }
-            )
+        if not uploaded_files:
+            return standard_response("파일 업로드 실패", status=400, data={"skipped_files": skipped_files})
 
-        return standard_response(MESSAGES['error']['invalid_request'], status=400)
+        return standard_response(
+            "파일 업로드 완료",
+            data={
+                'uploaded_files': uploaded_files,
+                'image_ids': uploaded_image_ids,
+                'skipped_files': skipped_files
+            }
+        )
 
     except Exception as e:
         logger.error(f"Upload error: {str(e)}")
         return handle_exception(e)
+
 
 
 @upload_bp.route('/files/bulk-delete', methods=['DELETE'])
@@ -216,52 +219,29 @@ def parse_files():
         data = request.get_json()
         image_ids = data.get('image_ids', [])
         timeout = data.get('timeout', 30)  # 기본 타임아웃 30초
-        
-        if not image_ids:
-            return standard_response(
-                "파싱할 이미지 ID가 필요합니다", 
-                status=400
-            )
-        
-        # 해당 이미지들 조회
-        images = list(db.images.find({
-            '_id': {'$in': [ObjectId(id) for id in image_ids]}
-        }))
-        
-        if not images:
-            return standard_response(
-                "파싱할 이미지를 찾을 수 없습니다",
-                data={'parsed_count': 0}
-            )
 
-        # EXIF 파싱 실행 (타임아웃 추가)
+        if not image_ids:
+            return standard_response("파싱할 이미지 ID가 필요합니다", status=400)
+
+        images = list(db.images.find({'_id': {'$in': [ObjectId(id) for id in image_ids]}}))
+        if not images:
+            return standard_response("파싱할 이미지를 찾을 수 없습니다", data={'parsed_count': 0})
+
         image_paths = [img['FilePath'] for img in images]
         project_info = {
             'name': images[0]['ProjectInfo']['ProjectName'],
             'id': images[0]['ProjectInfo']['ID']
         }
-        
+
         try:
-            processed_images = process_images(
-                image_paths,
-                project_info,
-                'analysis',
-                str(datetime.utcnow()),
-                timeout=timeout  # 타임아웃 설정 추가
-            )
+            processed_images = process_images(image_paths, project_info, 'analysis', str(datetime.utcnow()), timeout=timeout)
         except TimeoutError:
-            return standard_response(
-                "EXIF 파싱 시간이 초과되었습니다",
-                status=408,  # Request Timeout
-                data={
-                    'timeout': timeout,
-                    'image_count': len(images)
-                }
-            )
-        
-        # 파싱 결과 DB 업데이트
+            return standard_response("EXIF 파싱 시간이 초과되었습니다", status=408, data={'timeout': timeout, 'image_count': len(images)})
+
         update_count = 0
         parsed_images = []
+        failed_images = []
+
         for processed in processed_images:
             result = db.images.update_one(
                 {'FilePath': processed['FilePath']},
@@ -277,26 +257,26 @@ def parse_files():
                     }
                 }
             )
+
             if result.modified_count > 0:
                 update_count += 1
                 parsed_images.append({
-                    'image_id': str(processed['_id']),  # 이미지 ID 추가
+                    'image_id': str(processed['_id']),
                     'filename': processed['FileName'],
                     'serial_number': processed['SerialNumber'],
                     'datetime': processed['DateTimeOriginal']['$date'],
                     'evtnum': processed.get('evtnum')
                 })
-        
-        return standard_response(
-            "EXIF 파싱이 완료되었습니다",
-            data={
-                'total_images': len(images),
-                'parsed_count': update_count,
-                'parsed_images': parsed_images
-            }
-        )
-        
+            else:
+                failed_images.append(processed['FileName'])
+
+        if failed_images:
+            return standard_response("일부 이미지의 EXIF 파싱이 완료되었으나 실패한 파일이 있습니다", status=206, data={'parsed_count': update_count, 'failed_images': failed_images})
+
+        return standard_response("EXIF 파싱이 완료되었습니다", data={'total_images': len(images), 'parsed_count': update_count, 'parsed_images': parsed_images})
+
     except Exception as e:
         logger.error(f"EXIF parsing error: {str(e)}")
         return handle_exception(e)
+
 
