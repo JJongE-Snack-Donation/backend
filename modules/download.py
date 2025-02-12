@@ -84,32 +84,3 @@ def download_multiple_images() -> Union[Tuple[Dict[str, Any], int], Any]:
         
     except Exception as e:
         return handle_exception(e, error_type="file_error")
-
-@download_bp.route('/download/thumbnail/<image_id>', methods=['GET'])
-@jwt_required()
-def download_thumbnail(image_id: str) -> Union[Tuple[Dict[str, Any], int], Any]:
-    """썸네일 다운로드 API"""
-    try:
-        # 이미지 정보 조회
-        image = db.images.find_one({'_id': ObjectId(image_id)})
-        if not image:
-            return handle_exception(
-                Exception(MESSAGES['error']['not_found']),
-                error_type="validation_error"
-            )
-            
-        thumbnail_path = image.get('ThumnailPath')
-        if not thumbnail_path or not os.path.exists(thumbnail_path):
-            return handle_exception(
-                Exception("썸네일을 찾을 수 없습니다"),
-                error_type="file_error"
-            )
-            
-        return send_file(
-            thumbnail_path,
-            as_attachment=True,
-            download_name=f"thumb_{image.get('FileName', 'thumbnail.jpg')}"
-        )
-        
-    except Exception as e:
-        return handle_exception(e, error_type="file_error") 
