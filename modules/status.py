@@ -13,44 +13,30 @@ status_bp = Blueprint('status', __name__)
 
 def generate_status_updates():
     """실시간 상태 업데이트 생성기"""
-    while True:
-        try:
-            # 전체 이미지 수와 분류된 이미지 수 조회
+    try:
+        while True:
+            # 상태 데이터 생성
             total_images = db.images.count_documents({})
             classified_images = db.images.count_documents({'is_classified': True})
             unclassified_images = db.images.count_documents({'is_classified': False})
-            
-            # 진행률 계산
             progress_percentage = (classified_images / total_images * 100) if total_images > 0 else 0
-            
-            # 상태 데이터 생성
+
             status_data = {
                 "total_images": total_images,
                 "classified_images": classified_images,
                 "unclassified_images": unclassified_images,
                 "progress_percentage": round(progress_percentage, 2)
             }
-            
+
             yield f"data: {json.dumps(status_data)}\n\n"
             time.sleep(3)
-            
-        except Exception as e:
-            error_data = {"error": str(e)}
-            yield f"data: {json.dumps(error_data)}\n\n"
-            time.sleep(5)
 
-@status_bp.route('/status/stream', methods=['GET'])
-@jwt_required()
-def stream_status():
-    """Server-Sent Events (SSE) API"""
-    return Response(
-        stream_with_context(generate_status_updates()),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive'
-        }
-    )
+    except GeneratorExit:
+        print("Client disconnected, stopping status updates.")
+    except Exception as e:
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        time.sleep(5)
+
 
 @status_bp.route('/status/summary', methods=['GET'])
 @jwt_required()
@@ -122,6 +108,7 @@ def get_status_summary() -> Tuple[Dict[str, Any], int]:
         return handle_exception(e, error_type="db_error")
 
 @status_bp.route('/status/health', methods=['GET'])
+@jwt_required()
 def health_check() -> Tuple[Dict[str, Any], int]:
     """시스템 헬스 체크 API"""
     try:
