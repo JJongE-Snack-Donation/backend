@@ -705,8 +705,8 @@ paths:
               timeout:
                 type: integer
                 description: 파싱 타임아웃 시간(초) (선택)
-                example: 45
                 default: 30
+                example: 45
       responses:
         200:
           description: EXIF 파싱 성공
@@ -721,8 +721,10 @@ paths:
                 properties:
                   total_images:
                     type: integer
+                    example: 50
                   parsed_count:
                     type: integer
+                    example: 48
                   parsed_images:
                     type: array
                     items:
@@ -730,22 +732,26 @@ paths:
                       properties:
                         image_id:
                           type: string
+                          example: "507f1f77bcf86cd799439011"
                         filename:
                           type: string
+                          example: "image1.jpg"
                         serial_number:
                           type: string
+                          example: "SN123456"
                         datetime:
                           type: string
                           format: date-time
                           example: "2025-02-10T12:34:56Z"
                         evtnum:
                           type: integer
+                          example: 3
                   failed_images:
                     type: array
                     items:
                       type: string
                     description: EXIF 파싱에 실패한 파일 목록
-                    example: ["image1.jpg", "image2.jpg"]
+                    example: ["failed_image1.jpg", "failed_image2.jpg"]
         206:
           description: 일부 파일만 EXIF 파싱 성공
           schema:
@@ -759,15 +765,26 @@ paths:
                 properties:
                   parsed_count:
                     type: integer
+                    example: 45
                   failed_images:
                     type: array
                     items:
                       type: string
                     example: ["failed_image1.jpg", "failed_image2.jpg"]
         400:
-          description: 잘못된 요청 (예: image_ids가 없음)
+          description: "잘못된 요청 (예: image_ids가 없음)"
           schema:
-            $ref: '#/definitions/Error'
+            type: object
+            properties:
+              message:
+                type: string
+                example: "파싱할 이미지 ID가 필요합니다"
+              error_code:
+                type: string
+                example: "invalid_request"
+              status:
+                type: integer
+                example: 400
         408:
           description: 요청 시간 초과
           schema:
@@ -781,12 +798,32 @@ paths:
                 properties:
                   timeout:
                     type: integer
+                    example: 30
                   image_count:
                     type: integer
+                    example: 12
+              error_code:
+                type: string
+                example: "timeout_error"
+              status:
+                type: integer
+                example: 408
         500:
           description: 서버 오류
           schema:
-            $ref: '#/definitions/Error'
+            type: object
+            properties:
+              message:
+                type: string
+                example: "서버 내부 오류가 발생했습니다"
+              error_code:
+                type: string
+                example: "internal_server_error"
+              status:
+                type: integer
+                example: 500
+
+
 
 
   /images:
