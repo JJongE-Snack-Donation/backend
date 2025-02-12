@@ -135,7 +135,8 @@ def detect_objects():
                     'Accuracy': detection_result['detections'][0]['confidence'] if detection_result['detections'] else 0,
                     'AI_processed': True,
                     'AI_process_date': datetime.utcnow(),
-                    'detection_image': detection_result['result_image']
+                    'detection_image': detection_result['result_image'],
+                    'is_classified': bool(detection_result['detections'])
                 }
 
                 if detection_result['detections']:
