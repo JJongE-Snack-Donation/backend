@@ -22,6 +22,13 @@ tags:
     description: "즐겨찾기 관련 API"
   - name: "Upload"
     description: "파일 업로드 관련 API"
+  - name: "Classification"
+    description: "분류 관련 API"
+  - name: "search"
+    description: "검색 관련 API"
+  - name: "Download"
+    description: "다운로드 관련 API"
+
 
 paths:
   /admin/login:
@@ -59,7 +66,567 @@ paths:
               token:
                 type: "string"
                 example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+  # Admin Login 관련 엔드포인트
+  /admin/check-auth:
+    get:
+      tags:
+        - "Admin Login"
+      summary: 로그인 상태 확인
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: 토큰 유효성 확인 성공
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Token is valid"
+              user:
+                type: string
+                example: "admin"
+              authenticated:
+                type: boolean
+                example: true
+        401:
+          description: 인증 실패
 
+  /admin/logout:
+    post:
+      tags:
+        - "Admin Login"
+      summary: 관리자 로그아웃
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: 로그아웃 성공
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 200
+              message:
+                type: string
+                example: "로그아웃 성공"
+        401:
+          description: 인증 실패
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 401
+              message:
+                type: string
+                example: "인증 실패"
+  # Project API
+  /project:
+    get:
+      tags:
+        - Project
+      summary: 프로젝트 목록 조회
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: status
+          type: string
+          required: false
+          description: 프로젝트 상태 필터
+        - in: query
+          name: page
+          type: integer
+          required: false
+          default: 1
+        - in: query
+          name: per_page
+          type: integer
+          required: false
+          default: 10
+      responses:
+        200:
+          description: 프로젝트 목록 조회 성공
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+              data:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: '#/definitions/Project'
+              meta:
+                $ref: '#/definitions/PaginationMeta'
+
+    post:
+      tags:
+        - Project
+      summary: 프로젝트 생성
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              project_name:
+                type: string
+              start_date:
+                type: string
+                format: date
+              end_date:
+                type: string
+                format: date
+              address:
+                type: string
+              manager_organization:
+                type: string
+              memo:
+                type: string
+      responses:
+        200:
+          description: 프로젝트 생성 성공
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+              data:
+                $ref: '#/definitions/Project'
+
+  /project/check-name:
+    get:
+      tags:
+        - Project
+      summary: 프로젝트 이름 중복 확인
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: name
+          type: string
+          required: true
+          description: 확인할 프로젝트 이름
+      responses:
+        200:
+          description: 중복 확인 완료
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+              data:
+                type: object
+                properties:
+                  exists:
+                    type: boolean
+
+  # AI Detection API
+  /detect:
+    post:
+      tags:
+        - AI Detection
+      summary: AI 객체 탐지 실행
+      description: |
+        업로드된 이미지에 대한 AI 객체 탐지를 실행합니다.
+        - AI 진행 상태는 `/status/ai-progress` API를 통해 조회 가능
+        - 50% 진행 상태에서 응답을 반환한 후, 백그라운드에서 분석 진행
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              image_ids:
+                type: array
+                items:
+                  type: string
+                description: 분석할 이미지 ID 목록
+      responses:
+        202:
+          description: AI 탐지가 백그라운드에서 실행됨 (50% 진행)
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "객체 검출이 진행 중입니다"
+              progress:
+                type: integer
+                example: 50
+              total_images:
+                type: integer
+                example: 10
+        400:
+          description: 잘못된 요청 (이미지 ID 없음)
+          schema:
+            $ref: '#/definitions/Error'
+        500:
+          description: 서버 오류
+          schema:
+            $ref: '#/definitions/Error'
+
+  /status/ai-progress:
+    get:
+      tags:
+        - AI Detection
+      summary: AI 분석 진행 상태 조회
+      description: |
+        현재 AI 분석 진행 상태를 조회합니다.
+        - `/detect` API 실행 후, 프론트에서 주기적으로 조회하여 진행률을 확인할 수 있습니다.
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: AI 분석 진행률 반환
+          schema:
+            type: object
+            properties:
+              progress:
+                type: integer
+                example: 75
+                description: 현재 AI 분석 진행률 (0~100)
+              total_images:
+                type: integer
+                example: 10
+                description: 전체 분석할 이미지 개수
+              processed_images:
+                type: integer
+                example: 7
+                description: 현재까지 처리된 이미지 개수
+        500:
+          description: 서버 오류
+          schema:
+            $ref: '#/definitions/Error'
+
+  /image/{image_id}:
+    get:
+      tags:
+        - AI Detection
+      summary: 분류된 이미지 검토를 위한 상세 정보 조회
+      description: |
+        AI 분석이 완료된 이미지의 검토 정보를 조회합니다.
+        - 객체 탐지 결과 및 이미지 정보를 반환합니다.
+      parameters:
+        - in: path
+          name: image_id
+          required: true
+          type: string
+          description: 조회할 이미지의 ID
+      responses:
+        200:
+          description: 이미지 상세 정보 반환
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "이미지 조회 성공"
+              data:
+                type: object
+                properties:
+                  ImageDatas:
+                    type: object
+                    properties:
+                      _id:
+                        type: string
+                      Image_id:
+                        type: string
+                      Filename:
+                        type: string
+                      Status:
+                        type: string
+                      Detections:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            class:
+                              type: string
+                            confidence:
+                              type: number
+                              format: float
+                            bbox:
+                              type: array
+                              items:
+                                type: number
+                      Object_counts:
+                        type: object
+                        additionalProperties:
+                          type: integer
+        400:
+          description: 잘못된 요청 (이미지 ID 없음)
+          schema:
+            $ref: '#/definitions/Error'
+        404:
+          description: AI 분석된 이미지 없음
+          schema:
+            $ref: '#/definitions/Error'
+        500:
+          description: 서버 오류
+          schema:
+            $ref: '#/definitions/Error'
+  # Exception API
+  /exception/{image_id}/status:
+    put:
+      tags:
+        - Exception
+      summary: "예외 상태 업데이트"
+      description: "예외 상태와 코멘트를 업데이트합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: image_id
+          type: string
+          required: true
+          description: "이미지 ID (업데이트 대상)"
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [pending, confirmed, rejected]
+                description: "새로운 예외 상태"
+              comment:
+                type: string
+                description: "예외 상태 변경과 관련된 코멘트 (선택 사항)"
+            required:
+              - status
+      responses:
+        "200":
+          description: "예외 상태 업데이트 성공"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "예외 상태가 업데이트되었습니다"
+        "400":
+          description: "유효하지 않은 요청 (예: 상태가 잘못되었거나 이미지가 없음)"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "유효하지 않은 예외 상태입니다"
+              error_type:
+                type: string
+                example: "validation_error"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "DB 오류가 발생했습니다"
+              error_type:
+                type: string
+                example: "db_error"
+  /exception/bulk-update:
+    post:
+      tags:
+        - Exception
+      summary: "예외 상태 일괄 업데이트"
+      description: "여러 이미지의 예외 상태를 일괄적으로 업데이트합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              image_ids:
+                type: array
+                items:
+                  type: string
+                description: "업데이트할 이미지 ID 목록"
+              status:
+                type: string
+                enum: [pending, confirmed, rejected]
+                description: "새로운 예외 상태"
+              comment:
+                type: string
+                description: "예외 상태 변경과 관련된 코멘트 (선택 사항)"
+            required:
+              - image_ids
+              - status
+      responses:
+        "200":
+          description: "일괄 업데이트 성공"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "2개의 이미지가 업데이트되었습니다"
+              data:
+                type: object
+                properties:
+                  modified_count:
+                    type: integer
+                    description: "업데이트된 이미지 개수"
+                    example: 2
+        "400":
+          description: "잘못된 요청 (필수 필드 누락 또는 유효하지 않은 예외 상태)"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "이미지 ID와 상태값이 필요합니다"
+              error_type:
+                type: string
+                example: "validation_error"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "DB 오류가 발생했습니다"
+              error_type:
+                type: string
+                example: "db_error"
+  # Favorite API
+  /favorite/{image_id}:
+    post:
+      tags:
+        - Favorite
+      summary: "즐겨찾기 상태 토글"
+      description: "지정된 이미지의 즐겨찾기 상태를 현재 상태의 반대로 변경합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: image_id
+          type: string
+          required: true
+          description: "즐겨찾기 상태를 토글할 이미지의 ID"
+      responses:
+        "200":
+          description: "즐겨찾기 상태 변경 성공"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "즐겨찾기 상태가 변경되었습니다"
+              data:
+                type: object
+                properties:
+                  is_favorite:
+                    type: boolean
+                    example: true
+        "404":
+          description: "이미지를 찾을 수 없음"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "해당 이미지를 찾을 수 없습니다"
+              error_type:
+                type: string
+                example: "validation_error"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "DB 오류가 발생했습니다"
+              error_type:
+                type: string
+                example: "db_error"
+
+  /favorite/bulk:
+    post:
+      tags:
+        - Favorite
+      summary: "즐겨찾기 상태 일괄 업데이트"
+      description: "여러 이미지의 즐겨찾기 상태를 일괄적으로 업데이트합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              image_ids:
+                type: array
+                items:
+                  type: string
+                description: "업데이트할 이미지 ID 목록"
+              is_favorite:
+                type: boolean
+                description: "설정할 즐겨찾기 상태 (true: 즐겨찾기 설정, false: 해제)"
+            required:
+              - image_ids
+              - is_favorite
+      responses:
+        "200":
+          description: "일괄 업데이트 성공"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "3개의 이미지가 업데이트되었습니다"
+              data:
+                type: object
+                properties:
+                  modified_count:
+                    type: integer
+                    description: "업데이트된 이미지 수"
+                    example: 3
+                  is_favorite:
+                    type: boolean
+                    description: "적용된 즐겨찾기 상태"
+                    example: true
+        "400":
+          description: "잘못된 요청 (필수 필드 누락)"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "유효하지 않은 요청입니다"
+              error_type:
+                type: string
+                example: "validation_error"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "DB 오류가 발생했습니다"
+              error_type:
+                type: string
+                example: "db_error"
 
   /files/upload:
     post:
@@ -181,6 +748,8 @@ paths:
                           type: string
                         datetime:
                           type: string
+                          format: date-time
+                          example: "2025-02-10T12:34:56Z"
                         evtnum:
                           type: integer
         400:
@@ -206,6 +775,7 @@ paths:
           description: 서버 오류
           schema:
             $ref: '#/definitions/Error'
+
 
   /images:
     get:
@@ -303,7 +873,8 @@ paths:
     get:
       tags:
         - Classification
-      summary: 분류된 이미지 상세 정보 조회
+      summary: "분류된 이미지 상세 정보 조회"
+      description: "지정된 이미지 ID에 대한 상세 정보를 조회합니다."
       security:
         - Bearer: []
       parameters:
@@ -311,121 +882,388 @@ paths:
           name: image_id
           required: true
           type: string
-          description: 이미지 ID
+          description: "MongoDB _id (ObjectId)"
       responses:
-        200:
-          description: 이미지 상세 정보 조회 성공
+        "200":
+          description: "이미지 상세 정보 조회 성공"
           schema:
-            $ref: '#/definitions/ClassifiedImage'
-        404:
-          description: 이미지를 찾을 수 없음
-
-    delete:
-      tags:
-        - Classification
-      summary: 분류된 이미지 삭제
-      security:
-        - Bearer: []
-      parameters:
-        - in: path
-          name: image_id
-          required: true
-          type: string
-          description: 삭제할 이미지 ID
-      responses:
-        200:
-          description: 이미지 삭제 성공
-        404:
-          description: 이미지를 찾을 수 없음
-
-  # Search 관련 엔드포인트
-  /inspection/normal/search:
-    get:
-      tags:
-        - Search
-      summary: 일반 검수 이미지 검색
-      security:
-        - Bearer: []
-      parameters:
-        - in: query
-          name: project_name
-          type: string
-          description: 프로젝트 이름
-        - in: query
-          name: date
-          type: string
-          description: 검색할 날짜 (YYYY-MM-DD)
-        - in: query
-          name: serial_number
-          type: string
-          description: 카메라 시리얼 번호
-        - in: query
-          name: species
-          type: string
-          description: 동물 종
-        - in: query
-          name: page
-          type: integer
-          default: 1
-        - in: query
-          name: per_page
-          type: integer
-          default: 20
-      responses:
-        200:
-          description: 검색 성공
+            $ref: "#/definitions/ClassifiedImage"
+        "404":
+          description: "이미지를 찾을 수 없음"
           schema:
             type: object
             properties:
               message:
                 type: string
+                example: "Classified image not found"
+
+    put:
+      tags:
+        - Classification
+      summary: "분류된 이미지 정보 수정"
+      description: "특정 이미지의 개체 수와 최고 분류값을 수정합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: image_id
+          required: true
+          type: string
+          description: "MongoDB _id (ObjectId)"
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              count:
+                type: integer
+                description: "개체 수"
+                example: 5
+              best_class:
+                type: string
+                description: "AI 객체 분류 결과"
+                example: "호랑이"
+            required:
+              - count
+              - best_class
+      responses:
+        "200":
+          description: "이미지 정보 수정 성공"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Image successfully updated"
+        "400":
+          description: "잘못된 요청 (유효하지 않은 ID 또는 필수 필드 누락)"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Invalid request body"
+              error:
+                type: string
+                example: "Missing required fields"
+        "404":
+          description: "이미지를 찾을 수 없음"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Classified image not found"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Failed to update image"
+              error:
+                type: string
+                example: "MongoDB update error"
+
+    delete:
+      tags:
+        - Classification
+      summary: "분류된 이미지 삭제"
+      description: "지정된 이미지 ID를 삭제합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: image_id
+          required: true
+          type: string
+          description: "삭제할 이미지 ID"
+      responses:
+        "200":
+          description: "이미지 삭제 성공"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Image successfully deleted"
+        "404":
+          description: "이미지를 찾을 수 없음"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Classified image not found"
+  
+  /inspection/normal/bulk-update:
+    post:
+      tags:
+        - Classification
+      summary: "일반검수 - 다중 이미지 정보 수정"
+      description: "다수의 일반 검수 이미지를 한 번에 수정합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              image_ids:
+                type: array
+                items:
+                  type: string
+                description: "수정할 이미지 ID 목록"
+              updates:
+                type: object
+                properties:
+                  BestClass:
+                    type: string
+                    description: "새로운 종명"
+                    example: "호랑이"
+                  Count:
+                    type: integer
+                    description: "새로운 개체 수"
+                    example: 3
+            required:
+              - image_ids
+      responses:
+        "200":
+          description: "수정 성공"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "5개의 이미지가 수정되었습니다"
               data:
                 type: object
                 properties:
-                  images:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        filename:
-                          type: string
-                        thumbnail:
-                          type: string
-                        date:
-                          type: string
-                        serial_number:
-                          type: string
-                        species:
-                          type: string
-                        project_name:
-                          type: string
-                        count:
-                          type: integer
-                        event_number:
-                          type: integer
-                        is_classified:
-                          type: boolean
-                          default: true
-              meta:
+                  modified_count:
+                    type: integer
+                    example: 5
+        "400":
+          description: "잘못된 요청 (ID 누락, 잘못된 데이터 타입)"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "이미지 ID 목록이 필요합니다"
+        "404":
+          description: "해당 조건에 맞는 이미지가 없음"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "해당 조건에 맞는 이미지가 없습니다"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "서버 오류 발생"
+
+  /inspection/exception/bulk-update:
+    post:
+      tags:
+        - Classification
+      summary: 예외 검수 - 다중 이미지 정보 수정
+      description: 여러 개의 예외 검수 이미지를 한 번에 수정합니다.
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              image_ids:
+                type: array
+                items:
+                  type: string
+                description: 수정할 이미지 ID 목록
+              updates:
                 type: object
                 properties:
-                  total:
+                  exception_status:
+                    type: string
+                    enum: [pending, processed]
+                    description: 예외 상태 (선택적)
+                  Count:
                     type: integer
-                  page:
-                    type: integer
-                  per_page:
-                    type: integer
-                  total_pages:
-                    type: integer
+                    description: 개체 수 (선택적)
+            required:
+              - image_ids
+      responses:
+        200:
+          description: 이미지 수정 성공
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "5개의 이미지가 수정되었습니다"
+              modified_count:
+                type: integer
+                example: 5
+        400:
+          description: 잘못된 요청 (유효하지 않은 ID 포함)
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "유효하지 않은 이미지 ID가 포함되어 있습니다"
+              invalid_ids:
+                type: array
+                items:
+                  type: string
+        404:
+          description: 수정할 이미지가 없음
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "수정할 이미지가 없습니다"
+        500:
+          description: 서버 오류
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "서버 오류 발생"
 
-  /inspection/exception/search:
+
+  /inspection/normal:
+  get:
+    tags:
+      - Classification
+    summary: "일반검수(종분류) 이미지 조회"
+    description: "프로젝트, 날짜, 시리얼 번호, 종명 등의 필터링 조건을 적용하여 일반검수(분류된) 이미지 목록을 조회합니다."
+    security:
+      - Bearer: []
+    parameters:
+      - name: project_name
+        in: query
+        type: string
+        required: false
+        description: "검색할 프로젝트 이름"
+      - name: start_date
+        in: query
+        type: string
+        format: date
+        required: false
+        description: "검색 시작 날짜 (YYYY-MM-DD)"
+      - name: end_date
+        in: query
+        type: string
+        format: date
+        required: false
+        description: "검색 종료 날짜 (YYYY-MM-DD)"
+      - name: serial_number
+        in: query
+        type: string
+        required: false
+        description: "카메라 시리얼 번호"
+      - name: species_name
+        in: query
+        type: string
+        required: false
+        description: "동물 종 이름"
+      - name: page
+        in: query
+        type: integer
+        required: false
+        default: 1
+        description: "페이지 번호"
+      - name: per_page
+        in: query
+        type: integer
+        required: false
+        default: 20
+        description: "한 페이지당 표시할 이미지 개수"
+    responses:
+      "200":
+        description: "일반 검수 이미지 조회 성공"
+        schema:
+          type: object
+          properties:
+            status:
+              type: integer
+              example: 200
+            message:
+              type: string
+              example: "일반 검수 이미지 조회 성공"
+            total:
+              type: integer
+              example: 100
+            page:
+              type: integer
+              example: 1
+            per_page:
+              type: integer
+              example: 20
+            total_pages:
+              type: integer
+              example: 5
+            images:
+              type: array
+              items:
+                type: object
+                properties:
+                  imageId:
+                    type: string
+                    example: "60c72b2f9e1b8b001f1b4a8a"
+                  fileName:
+                    type: string
+                    example: "example_image.jpg"
+                  imageUrl:
+                    type: string
+                    example: "/path/to/thumbnail.jpg"
+                  uploadDate:
+                    type: string
+                    format: date-time
+                    example: "2025-02-10T12:34:56Z"
+                  projectName:
+                    type: string
+                    example: "환경보호 프로젝트"
+                  serialNumber:
+                    type: string
+                    example: "12345XYZ"
+                  speciesName:
+                    type: string
+                    example: "호랑이"
+      "400":
+        description: "잘못된 요청 (예: 날짜 형식 오류)"
+        schema:
+          type: object
+          properties:
+            status:
+              type: integer
+              example: 400
+            message:
+              type: string
+              example: "유효하지 않은 요청입니다"
+      "500":
+        description: "서버 오류"
+        schema:
+  /inspection/exception:
     get:
       tags:
-        - Search
-      summary: 예외 검수 이미지 검색
-      description: "프로젝트명, 날짜, 시리얼 번호 등 조건에 따라 미분류 예외 검수 이미지를 검색합니다. (기본적으로 미분류 이미지만 검색됩니다)"
+        - Classification
+      summary: "예외검수(미분류) 이미지 조회"
+      description: "프로젝트, 날짜, 시리얼 번호, 예외 상태 등의 필터링 조건을 적용하여 예외검수(미분류된) 이미지 목록을 조회합니다."
       security:
         - Bearer: []
       parameters:
@@ -433,36 +1271,171 @@ paths:
           in: query
           type: string
           required: false
-          description: "검색할 프로젝트 이름 (부분 일치)"
-        - name: date
+          description: "검색할 프로젝트 이름"
+        - name: start_date
           in: query
           type: string
-          required: false
-          description: "검색할 날짜 (YYYY-MM-DD 형식)"
           format: date
+          required: false
+          description: "검색 시작 날짜 (YYYY-MM-DD)"
+        - name: end_date
+          in: query
+          type: string
+          format: date
+          required: false
+          description: "검색 종료 날짜 (YYYY-MM-DD)"
         - name: serial_number
           in: query
           type: string
           required: false
-          description: "검색할 시리얼 번호 (부분 일치)"
+          description: "카메라 시리얼 번호"
         - name: exception_status
           in: query
           type: string
           required: false
-          description: "예외 상태"
-          enum: ["pending", "approved", "rejected"]
+          enum: [pending, processed]
+          description: "예외 처리 상태 (pending/processed)"
         - name: page
           in: query
           type: integer
           required: false
+          default: 1
           description: "페이지 번호"
+        - name: per_page
+          in: query
+          type: integer
+          required: false
+          default: 20
+          description: "한 페이지당 표시할 이미지 개수"
+      responses:
+        "200":
+          description: "예외 검수 이미지 조회 성공"
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 200
+              message:
+                type: string
+                example: "예외 검수 이미지 조회 성공"
+              total:
+                type: integer
+                example: 100
+              page:
+                type: integer
+                example: 1
+              per_page:
+                type: integer
+                example: 20
+              total_pages:
+                type: integer
+                example: 5
+              images:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    imageId:
+                      type: string
+                      example: "60c72b2f9e1b8b001f1b4a8a"
+                    fileName:
+                      type: string
+                      example: "example_image.jpg"
+                    imageUrl:
+                      type: string
+                      example: "/path/to/thumbnail.jpg"
+                    uploadDate:
+                      type: string
+                      format: date-time
+                      example: "2025-02-10T12:34:56Z"
+                    projectName:
+                      type: string
+                      example: "환경보호 프로젝트"
+                    serialNumber:
+                      type: string
+                      example: "12345XYZ"
+                    exceptionStatus:
+                      type: string
+                      example: "pending"
+        "400":
+          description: "잘못된 요청 (예: 날짜 형식 오류)"
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 400
+              message:
+                type: string
+                example: "유효하지 않은 요청입니다"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 500
+              message:
+                type: string
+                example: "서버 오류 발생"
+
+  
+
+  # Search 관련 엔드포인트
+  /inspection/normal/search:
+    get:
+      tags:
+        - search
+      summary: "일반 검수 이미지 검색 및 그룹 조회"
+      description: "프로젝트명, 날짜, 시리얼 번호, 종 이름 등 조건에 따라 일반 검수(분류된) 이미지를 검색하거나 그룹화된 목록을 조회합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - name: group_by
+          in: query
+          type: string
+          required: false
+          description: "evtnum 기준으로 그룹 조회 (값: evtnum)"
+        - name: evtnum
+          in: query
+          type: integer
+          required: false
+          description: "검색할 이벤트 번호 (그룹 검색)"
+        - name: project_name
+          in: query
+          type: string
+          required: false
+          description: "검색할 프로젝트 이름"
+        - name: serial_number
+          in: query
+          type: string
+          required: false
+          description: "검색할 카메라 시리얼 번호"
+        - name: species
+          in: query
+          type: string
+          required: false
+          description: "검색할 종 이름"
+        - name: date
+          in: query
+          type: string
+          required: false
+          format: date
+          description: "검색할 날짜 (YYYY-MM-DD 형식)"
+        - name: page
+          in: query
+          type: integer
+          required: false
+          description: "페이지 번호 (기본값: 1)"
           default: 1
         - name: per_page
           in: query
           type: integer
           required: false
-          description: "한 페이지당 결과 개수"
-          default: 12
+          description: "한 페이지당 결과 개수 (기본값: 20)"
+          default: 20
       responses:
         "200":
           description: "검색 결과 반환 성공"
@@ -472,71 +1445,119 @@ paths:
               message:
                 type: string
                 example: "검색이 성공적으로 완료되었습니다"
-              data:
-                type: object
-                properties:
-                  images:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          example: "60c72b2f9e1b8b001f1b4a8a"
-                        filename:
-                          type: string
-                          example: "example_image.jpg"
-                        thumbnail:
-                          type: string
-                          example: "/path/to/thumbnail.jpg"
-                        date:
-                          type: string
-                          format: date
-                          example: "2025-02-10"
-                        serial_number:
-                          type: string
-                          example: "12345XYZ"
-                        project_name:
-                          type: string
-                          example: "환경보호 프로젝트"
-                        exception_status:
-                          type: string
-                          enum: ["pending", "approved", "rejected"]
-                          example: "pending"
-                        event_number:
-                          type: integer
-                          example: 5
-                        is_classified:
-                          type: boolean
-                          example: false
-              meta:
-                type: object
-                properties:
-                  total:
-                    type: integer
-                    example: 100
-                  page:
-                    type: integer
-                    example: 1
-                  per_page:
-                    type: integer
-                    example: 12
+              total:
+                type: integer
+                example: 100
+              page:
+                type: integer
+                example: 1
+              per_page:
+                type: integer
+                example: 20
+              images:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      example: "60c72b2f9e1b8b001f1b4a8a"
+                    filename:
+                      type: string
+                      example: "example_image.jpg"
+                    thumbnail:
+                      type: string
+                      example: "/path/to/thumbnail.jpg"
+                    date:
+                      type: string
+                      format: date
+                      example: "2025-02-10"
+                    serial_number:
+                      type: string
+                      example: "12345XYZ"
+                    species:
+                      type: string
+                      example: "호랑이"
+                    project_name:
+                      type: string
+                      example: "환경보호 프로젝트"
+                    count:
+                      type: integer
+                      example: 3
+                    event_number:
+                      type: integer
+                      example: 1001
         "400":
           description: "잘못된 요청 (예: 날짜 형식 오류)"
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "유효하지 않은 요청입니다"
         "500":
-          description: "서버 오류"
+          description: "서버 오류 발생"
+
+
+  /inspection/exception/search:
+    get:
+      tags:
+        - search
+      summary: "예외 검수 이미지 검색 및 그룹 조회"
+      description: "프로젝트명, 날짜, 시리얼 번호, 예외 상태 등 조건에 따라 예외 검수(미분류) 이미지를 검색하거나 그룹화된 목록을 조회합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - name: group_by
+          in: query
+          type: string
+          required: false
+          description: "evtnum 기준으로 그룹 조회 (값: evtnum)"
+        - name: evtnum
+          in: query
+          type: integer
+          required: false
+          description: "검색할 이벤트 번호 (그룹 검색)"
+      responses:
+        "200":
+          description: "검색 결과 반환 성공"
           schema:
             type: object
             properties:
               message:
                 type: string
-                example: "서버 오류가 발생했습니다"
+                example: "검색이 성공적으로 완료되었습니다"
+              total:
+                type: integer
+                example: 100
+              page:
+                type: integer
+                example: 1
+              per_page:
+                type: integer
+                example: 20
+              groups:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    evtnum:
+                      type: integer
+                      example: 1234
+                    serialNumber:
+                      type: string
+                      example: "CAM-12345"
+                    imageCount:
+                      type: integer
+                      example: 10
+                    ThumnailPath:
+                      type: string
+                      example: "/path/to/thumbnail.jpg"
+                    projectName:
+                      type: string
+                      example: "환경보호 프로젝트"
+                    DateTimeOriginal:
+                      type: string
+                      format: date-time
+                      example: "2025-02-10"
+        "400":
+          description: "잘못된 요청 (예: 날짜 형식 오류)"
+        "500":
+          description: "서버 오류 발생"
 
 
   # Download 관련 엔드포인트
@@ -801,42 +1822,406 @@ paths:
                       type: string
                       example: "60c72b2f9e1b8b001f1b4a8a"
 
-  # Admin Login 관련 엔드포인트
-  /admin/check-auth:
+  
+
+  # Unclassified Images 관련 엔드포인트
+  /unclassified-images/{image_id}:
     get:
       tags:
-        - "Admin Login"
-      summary: 로그인 상태 확인
+        - Classification
+      summary: "미분류 이미지 상세 정보 조회"
+      description: "지정된 미분류 이미지의 상세 정보를 조회합니다."
       security:
         - Bearer: []
+      parameters:
+        - in: path
+          name: image_id
+          required: true
+          type: string
+          description: "MongoDB _id (ObjectId)"
       responses:
-        200:
-          description: 토큰 유효성 확인 성공
+        "200":
+          description: "이미지 상세 정보 조회 성공"
+          schema:
+            type: object
+            properties:
+              _id:
+                type: string
+                example: "60c72b2f9e1b8b001f1b4a8a"
+              FileName:
+                type: string
+                description: "파일명"
+                example: "image_123.jpg"
+              FilePath:
+                type: string
+                description: "원본 파일 경로"
+                example: "/data/images/image_123.jpg"
+              ThumnailPath:
+                type: string
+                description: "썸네일 파일 경로"
+                example: "/data/thumbnails/image_123_thumb.jpg"
+              ProjectInfo:
+                type: object
+                description: "프로젝트 정보"
+                properties:
+                  ProjectName:
+                    type: string
+                    example: "환경 보호 프로젝트"
+                  ID:
+                    type: string
+                    example: "proj_001"
+              AnalysisFolder:
+                type: string
+                description: "분석 폴더명"
+                example: "detection_results"
+        "400":
+          description: "잘못된 요청"
           schema:
             type: object
             properties:
               message:
                 type: string
-                example: "Token is valid"
-              user:
+                example: "Invalid image ID format"
+        "404":
+          description: "이미지를 찾을 수 없음"
+          schema:
+            type: object
+            properties:
+              message:
                 type: string
-                example: "admin"
-              authenticated:
-                type: boolean
-                example: true
-        401:
-          description: 인증 실패
+                example: "Unclassified image not found"
 
-  /admin/logout:
-    post:
+    put:
       tags:
-        - "Admin Login"
-      summary: 관리자 로그아웃
+        - Classification
+      summary: "미분류 이미지 정보 수정"
+      description: "탐지 실패 또는 성공한 미분류 이미지 정보를 업데이트합니다."
       security:
         - Bearer: []
+      parameters:
+        - name: image_id
+          in: path
+          required: true
+          type: string
+          description: "MongoDB _id (ObjectId)"
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              best_class:
+                type: string
+                description: "AI 객체 분류 결과 (탐지 실패 시 'unknown')"
+                example: "호랑이"
+              status:
+                type: string
+                description: "탐지 상태 (성공: 'detected', 실패: 'detection_failed')"
+                enum: ["detected", "detection_failed"]
+                example: "detected"
+              object_counts:
+                type: object
+                description: "객체 카운트 정보 (탐지 실패 시 빈 객체)"
+                example:
+                  "호랑이": 3
+            required:
+              - best_class
+              - status
+              - object_counts
       responses:
-        200:
-          description: 로그아웃 성공
+        "200":
+          description: "탐지 실패 또는 성공 정보 수정 성공"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Unclassified image successfully updated"
+        "400":
+          description: "잘못된 요청 (유효하지 않은 ID 또는 필수 필드 누락)"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Missing required fields"
+        "404":
+          description: "이미지를 찾을 수 없음"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Unclassified image not found"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Failed to update image"
+              error:
+                type: string
+                example: "MongoDB update error"
+
+  
+
+  
+  /images/batch-update:
+    post:
+      tags:
+        - Classification
+      summary: "이미지 속성 일괄 업데이트"
+      description: "이미지 ID 목록을 받아서 속성을 일괄 업데이트합니다. 분류된 이미지와 미분류된 이미지를 포함할 수 있습니다."
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              image_ids:
+                type: array
+                items:
+                  type: string
+                description: "업데이트할 이미지 ID 목록"
+              updates:
+                type: object
+                properties:
+                  exception_status:
+                    type: string
+                    enum: ["pending", "processed"]
+                    description: "예외 처리 상태"
+                  Count:
+                    type: integer
+                    description: "객체 수"
+            required:
+              - image_ids
+              - updates
+      responses:
+        "200":
+          description: "이미지 속성 업데이트 성공"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "5개의 이미지가 수정되었습니다"
+        "400":
+          description: "잘못된 요청 (예: 필수 데이터 누락, 잘못된 데이터 형식)"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "수정할 내용이 없습니다"
+              error_type:
+                type: string
+                example: "validation_error"
+        "404":
+          description: "해당 조건에 맞는 이미지가 없음"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "해당 조건에 맞는 이미지가 없습니다"
+        "500":
+          description: "서버 오류 발생"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "서버 오류: MongoDB 업데이트 실패"
+              error_type:
+                type: string
+                example: "db_error"
+
+  /images/classified:
+    get:
+      tags:
+        - Classification
+      summary: "분류된 이미지 리스트 조회"
+      description: "분류된 이미지 목록을 페이지네이션과 함께 조회합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - name: page
+          in: query
+          type: integer
+          required: false
+          description: "페이지 번호 (기본값: 1)"
+          default: 1
+        - name: per_page
+          in: query
+          type: integer
+          required: false
+          description: "한 페이지당 이미지 개수 (기본값: 20)"
+          default: 20
+        - name: sequenceNumber
+          in: query
+          type: integer
+          required: false
+          description: "이벤트 그룹 번호 (필터링 옵션)"
+      responses:
+        "200":
+          description: "분류된 이미지 리스트 조회 성공"
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 200
+              images:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    imageId:
+                      type: string
+                      description: "이미지의 MongoDB _id"
+                      example: "60c72b2f9e1b8b001f1b4a8a"
+                    imageUrl:
+                      type: string
+                      description: "이미지 썸네일 URL"
+                      example: "/mnt/project_001/analysis_folder/thumbnail/thum_image.jpg"
+                    uploadDate:
+                      type: string
+                      description: "이미지 업로드 날짜"
+                      format: date-time
+                      example: "2024-02-15T10:30:00Z"
+                    classificationResult:
+                      type: string
+                      description: "AI가 판단한 분류 결과"
+                      example: "호랑이"
+                    sequenceNumber:
+                      type: integer
+                      description: "이벤트 그룹 번호 (없을 경우 null)"
+                      example: 5
+                    projectId:
+                      type: string
+                      description: "이미지가 속한 프로젝트 ID"
+                      example: "proj_001"
+                    projectName:
+                      type: string
+                      description: "이미지가 속한 프로젝트 이름"
+                      example: "환경 보호 프로젝트"
+        "400":
+          description: "잘못된 요청 (유효하지 않은 페이지 값 등)"
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 400
+              message:
+                type: string
+                example: "Invalid request parameters"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 500
+              message:
+                type: string
+                example: "서버 오류 발생"
+  
+  /images/{image_id}:
+    get:
+      tags:
+        - Classification
+      summary: "이미지 상세 정보 조회"
+      description: "특정 이미지의 분류 결과 및 촬영 정보를 조회합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - name: image_id
+          in: path
+          required: true
+          type: string
+          description: "MongoDB _id (ObjectId)"
+      responses:
+        "200":
+          description: "이미지 상세 정보 조회 성공"
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 200
+              image:
+                type: object
+                properties:
+                  imageId:
+                    type: string
+                    description: "이미지의 MongoDB _id"
+                    example: "60c72b2f9e1b8b001f1b4a8a"
+                  classificationResult:
+                    type: string
+                    description: "AI가 판단한 분류 결과"
+                    example: "호랑이"
+                  details:
+                    type: object
+                    properties:
+                      captureDate:
+                        type: string
+                        format: date-time
+                        description: "촬영 날짜 (ISO 8601)"
+                        example: "2024-02-15T10:30:00Z"
+                      location:
+                        type: string
+                        description: "촬영 위치 (프로젝트 이름)"
+                        example: "환경 보호 프로젝트"
+                      animalType:
+                        type: string
+                        description: "동물 종류 (AI 예측값)"
+                        example: "호랑이"
+        "404":
+          description: "이미지를 찾을 수 없음"
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 404
+              message:
+                type: string
+                example: "이미지를 찾을 수 없음"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 500
+              message:
+                type: string
+                example: "서버 오류 발생"
+
+    delete:
+      tags:
+        - Classification
+      summary: "이미지 삭제"
+      description: "특정 이미지를 삭제하고 서버에 저장된 파일도 제거합니다."
+      security:
+        - Bearer: []
+      parameters:
+        - name: image_id
+          in: path
+          required: true
+          type: string
+          description: "MongoDB _id (ObjectId)"
+      responses:
+        "200":
+          description: "이미지 삭제 성공"
           schema:
             type: object
             properties:
@@ -845,140 +2230,154 @@ paths:
                 example: 200
               message:
                 type: string
-                example: "로그아웃 성공"
-        401:
-          description: 인증 실패
+                example: "이미지 삭제 성공"
+        "404":
+          description: "이미지를 찾을 수 없음"
           schema:
             type: object
             properties:
               status:
                 type: integer
-                example: 401
+                example: 404
               message:
                 type: string
-                example: "인증 실패"
+                example: "이미지를 찾을 수 없음"
+        "500":
+          description: "서버 오류"
+          schema:
+            type: object
+            properties:
+              status:
+                type: integer
+                example: 500
+              message:
+                type: string
+                example: "서버 오류 발생"
+  
+  
 
-  # Unclassified Images 관련 엔드포인트
-  /unclassified-images/{image_id}:
+  
+  /status/summary:
     get:
       tags:
-        - Classification
-      summary: 미분류 이미지 상세 정보 조회
+        - Status
+      summary: "시스템 상태 요약 조회"
+      description: "전체 이미지 수, 분류된 이미지 수, 검토 상태별 이미지 수, 최근 활동 및 프로젝트별 통계를 반환합니다."
       security:
         - Bearer: []
-      parameters:
-        - in: path
-          name: image_id
-          required: true
-          type: string
-          description: 이미지 ID
       responses:
-        200:
-          description: 이미지 상세 정보 조회 성공
-          schema:
-            type: object
-            properties:
-              _id:
-                type: string
-              FileName:
-                type: string
-              FilePath:
-                type: string
-              ThumnailPath:
-                type: string
-              ProjectInfo:
-                type: object
-              AnalysisFolder:
-                type: string
-        400:
-          description: 잘못된 요청
-        404:
-          description: 이미지를 찾을 수 없음
-
-  # AI Detection API
-  /detect:
-    post:
-      tags:
-        - AI Detection
-      summary: AI 객체 탐지 실행
-      security:
-        - Bearer: []
-      parameters:
-        - in: body
-          name: body
-          required: true
-          schema:
-            type: object
-            properties:
-              image_ids:
-                type: array
-                items:
-                  type: string
-                description: 분석할 이미지 ID 목록
-      responses:
-        200:
-          description: AI 탐지 성공
+        "200":
+          description: "시스템 상태 요약 조회 성공"
           schema:
             type: object
             properties:
               message:
                 type: string
-                example: "객체 검출이 완료되었습니다"
+                example: "시스템 상태 요약 조회 성공"
               data:
                 type: object
                 properties:
-                  processed_count:
+                  total_images:
                     type: integer
-                    description: 처리된 이미지 수
-                  total_count:
+                    example: 1500
+                  classified_images:
                     type: integer
-                    description: 전체 요청된 이미지 수
-                  results:
+                    example: 1200
+                  unclassified_images:
+                    type: integer
+                    example: 300
+                  inspection_status:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                    example:
+                      approved: 800
+                      rejected: 200
+                      pending: 500
+                  recent_activities:
+                    type: object
+                    properties:
+                      classifications:
+                        type: integer
+                        example: 50
+                      inspections:
+                        type: integer
+                        example: 30
+                  project_stats:
                     type: array
                     items:
                       type: object
                       properties:
-                        status:
+                        project_name:
                           type: string
-                          enum: [Success, Failed]
-                        detections:
-                          type: array
-                          items:
-                            type: object
-                            properties:
-                              class:
-                                type: string
-                              confidence:
-                                type: number
-                                format: float
-                        object_counts:
-                          type: object
-                          additionalProperties:
-                            type: integer
-        400:
-          description: 잘못된 요청
+                          example: "야생동물 감시 프로젝트"
+                        total_images:
+                          type: integer
+                          example: 500
+                        classified_images:
+                          type: integer
+                          example: 400
+        "500":
+          description: "서버 오류"
           schema:
-            $ref: '#/definitions/Error'
-        500:
-          description: 서버 오류
-          schema:
-            $ref: '#/definitions/Error'
+            type: object
+            properties:
+              message:
+                type: string
+                example: "데이터베이스 오류 발생"
+              error_type:
+                type: string
+                example: "db_error"
 
-  # Exception API
-  /exception/{image_id}/status:
+  /status/health:
+    get:
+      tags:
+        - Status
+      summary: "시스템 헬스 체크"
+      description: "서버와 데이터베이스의 정상 작동 여부를 확인합니다."
+      security:
+        - Bearer: []
+      responses:
+        "200":
+          description: "시스템이 정상 작동 중입니다"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "시스템이 정상 작동 중입니다"
+              data:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+        "500":
+          description: "데이터베이스 연결 오류"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "데이터베이스 연결 오류"
+              error_type:
+                type: string
+                example: "db_error"
+
+  /image/{image_id}/inspection-status:
     put:
       tags:
-        - Exception
-      summary: "예외 상태 업데이트"
-      description: "예외 상태와 코멘트를 업데이트합니다."
+        - Classification
+      summary: "검사 상태 업데이트"
+      description: "특정 이미지의 검사 상태를 업데이트합니다."
       security:
         - Bearer: []
       parameters:
-        - in: path
-          name: image_id
-          type: string
+        - name: image_id
+          in: path
           required: true
-          description: "이미지 ID (업데이트 대상)"
+          type: string
+          description: "MongoDB ObjectId 형식의 이미지 ID"
         - in: body
           name: body
           required: true
@@ -987,144 +2386,40 @@ paths:
             properties:
               status:
                 type: string
-                enum: [pending, confirmed, rejected]
-                description: "새로운 예외 상태"
-              comment:
-                type: string
-                description: "예외 상태 변경과 관련된 코멘트 (선택 사항)"
+                description: "변경할 검사 상태"
+                enum: ["pending", "approved", "rejected"]
+                example: "approved"
             required:
               - status
       responses:
         "200":
-          description: "예외 상태 업데이트 성공"
+          description: "검사 상태 업데이트 성공"
           schema:
             type: object
             properties:
               message:
                 type: string
-                example: "예외 상태가 업데이트되었습니다"
-        "400":
-          description: "유효하지 않은 요청 (예: 상태가 잘못되었거나 이미지가 없음)"
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "유효하지 않은 예외 상태입니다"
-              error_type:
-                type: string
-                example: "validation_error"
-        "500":
-          description: "서버 오류"
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "DB 오류가 발생했습니다"
-              error_type:
-                type: string
-                example: "db_error"
-
-
-  /exception/bulk-update:
-    post:
-      tags:
-        - Exception
-      summary: "예외 상태 일괄 업데이트"
-      description: "여러 이미지의 예외 상태를 일괄적으로 업데이트합니다."
-      security:
-        - Bearer: []
-      parameters:
-        - in: body
-          name: body
-          required: true
-          schema:
-            type: object
-            properties:
-              image_ids:
-                type: array
-                items:
-                  type: string
-                description: "업데이트할 이미지 ID 목록"
-              status:
-                type: string
-                enum: [pending, confirmed, rejected]
-                description: "새로운 예외 상태"
-              comment:
-                type: string
-                description: "예외 상태 변경과 관련된 코멘트 (선택 사항)"
-            required:
-              - image_ids
-              - status
-      responses:
-        "200":
-          description: "일괄 업데이트 성공"
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "2개의 이미지가 업데이트되었습니다"
+                example: "검사 상태가 업데이트되었습니다"
               data:
                 type: object
                 properties:
-                  modified_count:
-                    type: integer
-                    description: "업데이트된 이미지 개수"
-                    example: 2
+                  image_id:
+                    type: string
+                    example: "60c72b2f9e1b8b001f1b4a8a"
+                  inspection_status:
+                    type: string
+                    example: "approved"
         "400":
-          description: "잘못된 요청 (필수 필드 누락 또는 유효하지 않은 예외 상태)"
+          description: "잘못된 요청 (유효하지 않은 상태값 또는 ObjectId 오류)"
           schema:
             type: object
             properties:
               message:
                 type: string
-                example: "이미지 ID와 상태값이 필요합니다"
+                example: "유효하지 않은 검사 상태입니다"
               error_type:
                 type: string
                 example: "validation_error"
-        "500":
-          description: "서버 오류"
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "DB 오류가 발생했습니다"
-              error_type:
-                type: string
-                example: "db_error"
-  # Favorite API
-  /favorite/{image_id}:
-    post:
-      tags:
-        - Favorite
-      summary: "즐겨찾기 상태 토글"
-      description: "지정된 이미지의 즐겨찾기 상태를 현재 상태의 반대로 변경합니다."
-      security:
-        - Bearer: []
-      parameters:
-        - in: path
-          name: image_id
-          type: string
-          required: true
-          description: "즐겨찾기 상태를 토글할 이미지의 ID"
-      responses:
-        "200":
-          description: "즐겨찾기 상태 변경 성공"
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "즐겨찾기 상태가 변경되었습니다"
-              data:
-                type: object
-                properties:
-                  is_favorite:
-                    type: boolean
-                    example: true
         "404":
           description: "이미지를 찾을 수 없음"
           schema:
@@ -1132,10 +2427,10 @@ paths:
             properties:
               message:
                 type: string
-                example: "해당 이미지를 찾을 수 없습니다"
+                example: "이미지를 찾을 수 없습니다"
               error_type:
                 type: string
-                example: "validation_error"
+                example: "not_found"
         "500":
           description: "서버 오류"
           schema:
@@ -1143,186 +2438,10 @@ paths:
             properties:
               message:
                 type: string
-                example: "DB 오류가 발생했습니다"
+                example: "서버 오류 발생"
               error_type:
                 type: string
                 example: "db_error"
-
-  /favorite/bulk:
-    post:
-      tags:
-        - Favorite
-      summary: "즐겨찾기 상태 일괄 업데이트"
-      description: "여러 이미지의 즐겨찾기 상태를 일괄적으로 업데이트합니다."
-      security:
-        - Bearer: []
-      parameters:
-        - in: body
-          name: body
-          required: true
-          schema:
-            type: object
-            properties:
-              image_ids:
-                type: array
-                items:
-                  type: string
-                description: "업데이트할 이미지 ID 목록"
-              is_favorite:
-                type: boolean
-                description: "설정할 즐겨찾기 상태 (true: 즐겨찾기 설정, false: 해제)"
-            required:
-              - image_ids
-              - is_favorite
-      responses:
-        "200":
-          description: "일괄 업데이트 성공"
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "3개의 이미지가 업데이트되었습니다"
-              data:
-                type: object
-                properties:
-                  modified_count:
-                    type: integer
-                    description: "업데이트된 이미지 수"
-                    example: 3
-                  is_favorite:
-                    type: boolean
-                    description: "적용된 즐겨찾기 상태"
-                    example: true
-        "400":
-          description: "잘못된 요청 (필수 필드 누락)"
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "유효하지 않은 요청입니다"
-              error_type:
-                type: string
-                example: "validation_error"
-        "500":
-          description: "서버 오류"
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "DB 오류가 발생했습니다"
-              error_type:
-                type: string
-                example: "db_error"
-
-  # Project API
-  /project:
-    get:
-      tags:
-        - Project
-      summary: 프로젝트 목록 조회
-      security:
-        - Bearer: []
-      parameters:
-        - in: query
-          name: status
-          type: string
-          required: false
-          description: 프로젝트 상태 필터
-        - in: query
-          name: page
-          type: integer
-          required: false
-          default: 1
-        - in: query
-          name: per_page
-          type: integer
-          required: false
-          default: 10
-      responses:
-        200:
-          description: 프로젝트 목록 조회 성공
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-              data:
-                type: object
-                properties:
-                  projects:
-                    type: array
-                    items:
-                      $ref: '#/definitions/Project'
-              meta:
-                $ref: '#/definitions/PaginationMeta'
-
-    post:
-      tags:
-        - Project
-      summary: 프로젝트 생성
-      security:
-        - Bearer: []
-      parameters:
-        - in: body
-          name: body
-          required: true
-          schema:
-            type: object
-            properties:
-              project_name:
-                type: string
-              start_date:
-                type: string
-                format: date
-              end_date:
-                type: string
-                format: date
-              address:
-                type: string
-              manager_organization:
-                type: string
-              memo:
-                type: string
-      responses:
-        200:
-          description: 프로젝트 생성 성공
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-              data:
-                $ref: '#/definitions/Project'
-
-  /project/check-name:
-    get:
-      tags:
-        - Project
-      summary: 프로젝트 이름 중복 확인
-      security:
-        - Bearer: []
-      parameters:
-        - in: query
-          name: name
-          type: string
-          required: true
-          description: 확인할 프로젝트 이름
-      responses:
-        200:
-          description: 중복 확인 완료
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-              data:
-                type: object
-                properties:
-                  exists:
-                    type: boolean
 
 definitions:
   ProcessedImage:
@@ -1376,6 +2495,16 @@ definitions:
       __v:
         type: integer
         example: 0
+      inspection:
+        type: object
+      properties:
+          status:
+          type: string
+          description: "검사 상태"
+      updated_at:
+          type: string
+          format: date-time
+          description: "검사 상태 업데이트 시간"
 
   ProjectInfo:
     type: object
