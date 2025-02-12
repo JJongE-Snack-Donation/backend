@@ -1,4 +1,6 @@
-from flask import Blueprint, request
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required
+from threading import Thread
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator
 import cv2
@@ -98,61 +100,75 @@ def process_detection(image_data: bytes, image_id: str) -> Dict:
         }
 
 @detection_bp.route('/detect', methods=['POST'])
+@jwt_required()
 def detect_objects():
     """객체 검출 API"""
     try:
         image_ids = request.json.get('image_ids', [])
         if not image_ids:
-            return handle_exception(
-                Exception("이미지 ID가 필요합니다"),
-                error_type="validation_error"
-            )
-            
-        results = []
-        processed_count = 0
-        
-        for image_id in image_ids:
-            # 원본 이미지 조회
-            image_doc = db.images.find_one({'_id': ObjectId(image_id)})
-            if not image_doc:
-                continue
-                
-            # 객체 검출 수행
-            detection_result = process_detection(
-                image_doc['data'],
-                str(image_id)
-            )
-            
-            # 결과 저장
-            if detection_result['status'] == 'Success':
-                # 이미지 컬렉션 업데이트
-                db.images.update_one(
-                    {'_id': ObjectId(image_id)},
-                    {
-                        '$set': {
-                            'Infos': detection_result['detections'],
-                            'Count': sum(detection_result['object_counts'].values()),
-                            'BestClass': detection_result['detections'][0]['class'] if detection_result['detections'] else None,
-                            'Accuracy': detection_result['detections'][0]['confidence'] if detection_result['detections'] else 0,
-                            'AI_processed': True,
-                            'AI_process_date': datetime.utcnow(),
-                            'detection_image': detection_result['result_image']
-                        }
-                    }
-                )
-                processed_count += 1
-                
-            results.append(detection_result)
-            
-        return standard_response(
-            "객체 검출이 완료되었습니다",
-            data={
-                'processed_count': processed_count,
-                'total_count': len(image_ids),
-                'results': results
-            }
+            return handle_exception(Exception("이미지 ID가 필요합니다"), error_type="validation_error")
+
+        total_images = len(image_ids)
+
+        # 🔹 Step 1: AI 분석 시작 (50%)
+        db.progress.update_one(
+            {'_id': 'ai_progress'},
+            {'$set': {'progress': 50, 'total_images': total_images, 'processed_images': 0}},
+            upsert=True
         )
-        
+
+        # 🔹 Step 2: 백그라운드에서 AI 분석 실행
+        def background_process(image_ids):
+            results = []
+            processed_count = 0
+
+            for image_id in image_ids:
+                image_doc = db.images.find_one({'_id': ObjectId(image_id)})
+                if not image_doc:
+                    continue
+
+                detection_result = process_detection(image_doc['data'], str(image_id))
+
+                update_data = {
+                    'Infos': detection_result['detections'],
+                    'Count': sum(detection_result['object_counts'].values()),
+                    'Accuracy': detection_result['detections'][0]['confidence'] if detection_result['detections'] else 0,
+                    'AI_processed': True,
+                    'AI_process_date': datetime.utcnow(),
+                    'detection_image': detection_result['result_image']
+                }
+
+                if detection_result['detections']:
+                    update_data['BestClass'] = detection_result['detections'][0]['class']
+
+                db.images.update_one({'_id': ObjectId(image_id)}, {'$set': update_data})
+
+                processed_count += 1
+                results.append(detection_result)
+
+                # 🔹 Step 3: 진행률 업데이트 (예: 50% → 75% → 100%)
+                progress_percentage = 50 + (processed_count / total_images * 50)
+                db.progress.update_one(
+                    {'_id': 'ai_progress'},
+                    {'$set': {'progress': round(progress_percentage, 2), 'processed_images': processed_count}}
+                )
+
+            # 🔹 Step 4: AI 분석 완료 (100%)
+            db.progress.update_one(
+                {'_id': 'ai_progress'},
+                {'$set': {'progress': 100, 'processed_images': processed_count}}
+            )
+
+        # 🔹 백그라운드 스레드 실행
+        Thread(target=background_process, args=(image_ids,)).start()
+
+        # 🔹 Step 5: 프론트엔드에 즉시 50% 진행 상태 응답
+        return jsonify({
+            "message": "객체 검출이 진행 중입니다",
+            "progress": 50,
+            "total_images": total_images
+        }), 202  # Accepted 응답 코드 사용
+
     except Exception as e:
         return handle_exception(e, error_type="ai_error")
 
@@ -185,5 +201,16 @@ def get_image_for_inspection(image_id: str) -> Tuple[Dict[str, Any], int]:
             data=response_data
         )
         
+    except Exception as e:
+        return handle_exception(e, error_type="db_error")
+
+@detection_bp.route('/status/ai-progress', methods=['GET'])
+@jwt_required()
+def get_ai_progress():
+    """AI 분석 진행 상태 조회 API"""
+    try:
+        progress = db.progress.find_one({'_id': 'ai_progress'}, {'_id': 0})
+        return jsonify(progress if progress else {"progress": 0, "total_images": 0, "processed_images": 0})
+
     except Exception as e:
         return handle_exception(e, error_type="db_error")
