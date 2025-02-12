@@ -234,7 +234,7 @@ def parse_files():
         }
 
         try:
-            processed_images = process_images(image_paths, project_info, 'analysis', str(datetime.utcnow()), timeout=timeout)
+            processed_images = process_images(image_paths, project_info, 'analysis', str(datetime.utcnow()))
         except TimeoutError:
             return standard_response("EXIF 파싱 시간이 초과되었습니다", status=408, data={'timeout': timeout, 'image_count': len(images)})
 

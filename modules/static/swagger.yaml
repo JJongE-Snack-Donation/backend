@@ -704,7 +704,8 @@ paths:
                 description: 파싱할 이미지 ID 목록
               timeout:
                 type: integer
-                description: 파싱 타임아웃 시간(초)
+                description: 파싱 타임아웃 시간(초) (선택)
+                example: 45
                 default: 30
       responses:
         200:
@@ -739,8 +740,32 @@ paths:
                           example: "2025-02-10T12:34:56Z"
                         evtnum:
                           type: integer
+                  failed_images:
+                    type: array
+                    items:
+                      type: string
+                    description: EXIF 파싱에 실패한 파일 목록
+                    example: ["image1.jpg", "image2.jpg"]
+        206:
+          description: 일부 파일만 EXIF 파싱 성공
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "일부 이미지의 EXIF 파싱이 완료되었으나 실패한 파일이 있습니다"
+              data:
+                type: object
+                properties:
+                  parsed_count:
+                    type: integer
+                  failed_images:
+                    type: array
+                    items:
+                      type: string
+                    example: ["failed_image1.jpg", "failed_image2.jpg"]
         400:
-          description: 잘못된 요청
+          description: 잘못된 요청 (예: image_ids가 없음)
           schema:
             $ref: '#/definitions/Error'
         408:
