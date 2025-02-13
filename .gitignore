@@ -1,3 +1,4 @@
 *.pyc
 *.jpg
-C:\Users\User\Documents\backend\modules\utils
+__pychache__
+constants.*
