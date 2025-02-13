@@ -132,7 +132,6 @@ def upload_files():
         return handle_exception(e)
 
 
-
 @upload_bp.route('/files/bulk-delete', methods=['DELETE'])
 @jwt_required()
 def delete_multiple_files():
@@ -146,30 +145,33 @@ def delete_multiple_files():
         
         deleted_count = 0
         failed_ids = []
-        
+
         for image_id in image_ids:
             try:
                 # ObjectId 변환 검증
                 try:
                     obj_id = ObjectId(image_id)
                 except:
+                    logger.warning(f"Invalid ObjectId format: {image_id}")
                     failed_ids.append(image_id)
                     continue
                 
-                # 먼저 이미지 정보만 조회
+                # 먼저 이미지 정보 조회
                 image = db.images.find_one({'_id': obj_id})
-                
                 if not image:
+                    logger.warning(f"Image not found in DB: {image_id}")
                     failed_ids.append(image_id)
                     continue
                 
-                # 실제 파일 삭제 시도
+                # 파일 삭제 시도
                 file_deleted = True
                 for path in [image.get('FilePath'), image.get('ThumnailPath')]:
                     if path and os.path.exists(path):
                         try:
                             os.remove(path)
-                        except:
+                            logger.info(f"File deleted: {path}")
+                        except Exception as e:
+                            logger.error(f"Failed to delete file {path}: {str(e)}")
                             file_deleted = False
                 
                 if not file_deleted:
@@ -181,35 +183,40 @@ def delete_multiple_files():
                 if result.deleted_count > 0:
                     deleted_count += 1
                 else:
+                    logger.warning(f"Failed to delete DB record for: {image_id}")
                     failed_ids.append(image_id)
-                    
-            except:
+
+            except Exception as e:
+                logger.error(f"Unexpected error while deleting {image_id}: {str(e)}")
                 failed_ids.append(image_id)
                 continue
-        
-        response_message = f"{deleted_count}개의 파일이 삭제되었습니다."
+
+        # 모든 파일 삭제 실패 시 500 응답
+        if deleted_count == 0:
+            return standard_response(
+                "모든 파일 삭제에 실패했습니다",
+                status=500,
+                data={'deleted_count': 0, 'failed_ids': failed_ids}
+            )
+
+        # 일부 삭제 실패 시 206 응답 (Partial Success)
         if failed_ids:
-            response_message += f" {len(failed_ids)}개의 파일 삭제 실패."
-        
-        # 상태 코드 결정
-        status_code = 200  # 기본값: 전체 성공
-        if len(failed_ids) == len(image_ids):
-            status_code = 500  # 전체 실패
-        elif failed_ids:
-            status_code = 207  # 부분 성공
-            
+            return standard_response(
+                message=f"{deleted_count}개의 파일이 삭제되었습니다. {len(failed_ids)}개의 파일 삭제 실패.",
+                status=206,  # Partial Content (부분 성공)
+                data={'deleted_count': deleted_count, 'failed_ids': failed_ids}
+            )
+
+        # 전체 삭제 성공 시 200 응답
         return standard_response(
-            message=response_message,
-            status=status_code,
-            data={
-                'deleted_count': deleted_count,
-                'failed_ids': failed_ids
-            }
+            message=f"{deleted_count}개의 파일이 삭제되었습니다",
+            status=200,
+            data={'deleted_count': deleted_count, 'failed_ids': []}
         )
 
     except Exception as e:
-        logger.error(f"Bulk deletion error: {str(e)}")
-        return handle_exception(e)
+        logger.error(f"Bulk file delete API error: {str(e)}")
+        return standard_response("서버 오류", status=500)
 
 @upload_bp.route('/files/parse-exif', methods=['POST'])
 @jwt_required()
@@ -249,7 +256,6 @@ def parse_files():
                     '$set': {
                         'SerialNumber': processed['SerialNumber'],
                         'DateTimeOriginal': processed['DateTimeOriginal'],
-                        'UserLabel': processed.get('UserLabel', 'UNKNOWN'),
                         'serial_filename': processed['serial_filename'],
                         'evtnum': processed.get('evtnum'),
                         'exif_parsed': True,
