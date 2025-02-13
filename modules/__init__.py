@@ -10,7 +10,6 @@ from .admin_login import admin_login_bp
 from .classification import classification_bp
 from .search import search_bp
 from .exception import exception_bp
-from .favorite import favorite_bp
 from .image_move import image_move_bp
 from .download import download_bp
 from .status import status_bp
@@ -66,7 +65,6 @@ def create_app():
     app.register_blueprint(classification_bp)
     app.register_blueprint(search_bp, url_prefix='/search')
     app.register_blueprint(exception_bp)
-    app.register_blueprint(favorite_bp)
     app.register_blueprint(download_bp)
     app.register_blueprint(image_move_bp)
     app.register_blueprint(status_bp)
