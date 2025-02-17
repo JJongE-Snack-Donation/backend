@@ -155,32 +155,41 @@ def process_images(image_paths: List[str], project_info: Dict,
     """이미지 목록을 처리하고 MongoDB 저장용 데이터 생성"""
     try:
         if not image_paths:
-            logger.warning("No images provided for processing")
+            logger.warning("⚠ No images provided for processing")
             return []
 
         if not validate_project_info(project_info):
             raise ValueError("Invalid project_info structure")
 
-        # 배치로 EXIF 데이터 추출
+        #  EXIF 데이터 추출
         metadata_list = parse_exif_data_batch(image_paths)
         if not metadata_list:
-            logger.error("No EXIF data could be extracted from images")
+            logger.error(" No EXIF data could be extracted from images")
             return []
 
-        # EXIF 데이터 구조화
+        #  EXIF 데이터 구조화
         image_data_list = []
         for metadata, image_path in zip(metadata_list, image_paths):
+            logger.info(f" Processing Image: {image_path}")  # 디버깅 로그
+
             exif_data = create_exif_data(
                 metadata, image_path, project_info, analysis_folder, session_id
             )
-            if exif_data:
-                image_data_list.append(exif_data)
+            if not exif_data:
+                logger.error(f" Failed to create EXIF data for {image_path}")
+                continue
 
-        # 시간별 그룹화
+            logger.info(f" EXIF Data Created: {exif_data}")  # 디버깅 로그
+            image_data_list.append(exif_data)
+
+        #  시간별 그룹화 (DateTimeOriginal 확인)
+        for img in image_data_list:
+            logger.info(f" DateTimeOriginal: {img['DateTimeOriginal']}")  # 디버깅 로그
+
         grouped_images = group_images_by_time(image_data_list)
-        logger.info(f"Successfully processed {len(grouped_images)} images")
+        logger.info(f" Successfully processed {len(grouped_images)} images")
         return grouped_images
 
     except Exception as e:
-        logger.error(f"Error in process_images: {str(e)}")
+        logger.error(f" Error in process_images: {str(e)}")
         return []

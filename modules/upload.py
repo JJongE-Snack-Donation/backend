@@ -242,6 +242,9 @@ def parse_files():
 
         try:
             processed_images = process_images(image_paths, project_info, 'analysis', str(datetime.utcnow()))
+            if not processed_images:
+                logger.error(" process_images()가 빈 리스트를 반환함")
+                return standard_response("EXIF 파싱에 실패했습니다 (process_images 반환값이 비어 있음)", status=500)
         except TimeoutError:
             return standard_response("EXIF 파싱 시간이 초과되었습니다", status=408, data={'timeout': timeout, 'image_count': len(images)})
 
@@ -250,13 +253,21 @@ def parse_files():
         failed_images = []
 
         for processed in processed_images:
+            #  디버깅: process_images()의 반환값을 확인
+            logger.info(f"🔍 처리된 이미지: {processed}")
+
+            if 'FilePath' not in processed or not processed['FilePath']:
+                logger.error(f"⚠️ 처리된 이미지에 FilePath가 없음: {processed}")
+                failed_images.append(processed.get('FileName', 'Unknown'))
+                continue
+
             result = db.images.update_one(
                 {'FilePath': processed['FilePath']},
                 {
                     '$set': {
-                        'SerialNumber': processed['SerialNumber'],
-                        'DateTimeOriginal': processed['DateTimeOriginal'],
-                        'serial_filename': processed['serial_filename'],
+                        'SerialNumber': processed.get('SerialNumber', ''),
+                        'DateTimeOriginal': processed.get('DateTimeOriginal', ''),
+                        'serial_filename': processed.get('serial_filename', ''),
                         'evtnum': processed.get('evtnum'),
                         'exif_parsed': True,
                         'exif_parsed_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
@@ -264,19 +275,23 @@ def parse_files():
                 }
             )
 
+            #  디버깅: MongoDB 업데이트 결과 확인
+            logger.info(f" MongoDB 업데이트 결과: matched={result.matched_count}, modified={result.modified_count}")
+
             if result.modified_count > 0:
                 update_count += 1
                 parsed_images.append({
-                    'image_id': str(processed['_id']),
-                    'filename': processed['FileName'],
-                    'serial_number': processed['SerialNumber'],
-                    'datetime': processed['DateTimeOriginal']['$date'],
+                    'image_id': str(processed.get('_id', '')),
+                    'filename': processed.get('FileName', ''),
+                    'serial_number': processed.get('SerialNumber', ''),
+                    'datetime': processed.get('DateTimeOriginal', ''),
                     'evtnum': processed.get('evtnum')
                 })
             else:
-                failed_images.append(processed['FileName'])
+                failed_images.append(processed.get('FileName', 'Unknown'))
 
         if failed_images:
+            logger.warning(f" EXIF 파싱 실패 이미지 목록: {failed_images}")
             return standard_response("일부 이미지의 EXIF 파싱이 완료되었으나 실패한 파일이 있습니다", status=206, data={'parsed_count': update_count, 'failed_images': failed_images})
 
         return standard_response("EXIF 파싱이 완료되었습니다", data={'total_images': len(images), 'parsed_count': update_count, 'parsed_images': parsed_images})
@@ -284,5 +299,3 @@ def parse_files():
     except Exception as e:
         logger.error(f"EXIF parsing error: {str(e)}")
         return handle_exception(e)
-
-
