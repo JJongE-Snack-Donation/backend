@@ -58,7 +58,6 @@ def create_exif_data(metadata: Dict, image_path: str, project_info: Dict,
                     analysis_folder: str, session_id: str) -> Optional[Dict]:
     """EXIF 메타데이터로부터 구조화된 데이터 생성"""
     try:
-        # SerialNumber 및 DateTimeOriginal 추출
         serial_number = metadata.get("SerialNumber", "UNKNOWN")
         date_time = metadata.get("DateTimeOriginal")
 
@@ -72,19 +71,20 @@ def create_exif_data(metadata: Dict, image_path: str, project_info: Dict,
             date_obj = datetime.now()
             logger.warning(f"No DateTimeOriginal found for {image_path}, using current time")
 
-        # 파일명 생성
-        seq = 1
-        filename = date_obj.strftime('%Y%m%d-%H%M%S') + f's{seq}.jpg'
+        # 원본 파일명을 기반으로 새로운 파일명 생성 (MongoDB 저장 방식과 동일하게 설정)
+        base_name, ext = os.path.splitext(os.path.basename(image_path))  # 확장자 분리
+        filename = f"{date_obj.strftime('%Y%m%d-%H%M%S')}s1{ext}"  # EXIF DateTimeOriginal 사용
+        thumbnail_filename = f"thum_{filename}"  # 썸네일 파일명도 동일 규칙 적용
 
-        # 파일 경로 구성 (project_info['id'] 사용)
+        # 로컬 및 MongoDB 저장 경로 설정
         file_path = os.path.normpath(f"./mnt/{project_info['id']}/{analysis_folder}/source/{filename}")
-        thumbnail_path = os.path.normpath(f"./mnt/{project_info['id']}/{analysis_folder}/thumbnail/thum_{filename}")
+        thumbnail_path = os.path.normpath(f"./mnt/{project_info['id']}/{analysis_folder}/thumbnail/{thumbnail_filename}")
 
         return {
-            "FileName": filename,
-            "FilePath": file_path,
-            "OriginalFileName": os.path.basename(image_path),
-            "ThumnailPath": thumbnail_path,
+            "FileName": filename,  # 저장되는 파일명 통일
+            "FilePath": file_path,  # MongoDB와 동일한 경로 사용
+            "OriginalFileName": os.path.basename(image_path),  #원본 파일명 유지 (업데이트 시 사용)
+            "ThumnailPath": thumbnail_path,  # 
             "SerialNumber": serial_number,
             "UserLabel": metadata.get("UserLabel", "UNKNOWN"),
             "DateTimeOriginal": {
@@ -97,12 +97,13 @@ def create_exif_data(metadata: Dict, image_path: str, project_info: Dict,
             "AnalysisFolder": analysis_folder,
             "sessionid": [session_id],
             "uploadState": "uploaded",
-            "serial_filename": f"{serial_number}_{filename}",
+            "serial_filename": f"{serial_number}_{filename}", 
             "__v": 0
         }
     except Exception as e:
         logger.error(f"Error creating EXIF data structure: {str(e)}")
         return None
+
 
 def assign_evtnum_to_group(images: List[Dict], evt_num: int) -> List[Dict]:
     """이미지 그룹에 evtnum 할당"""

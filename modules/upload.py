@@ -243,7 +243,7 @@ def parse_files():
         try:
             processed_images = process_images(image_paths, project_info, 'analysis', str(datetime.utcnow()))
             if not processed_images:
-                logger.error(" process_images()가 빈 리스트를 반환함")
+                logger.error("process_images()가 빈 리스트를 반환함")
                 return standard_response("EXIF 파싱에 실패했습니다 (process_images 반환값이 비어 있음)", status=500)
         except TimeoutError:
             return standard_response("EXIF 파싱 시간이 초과되었습니다", status=408, data={'timeout': timeout, 'image_count': len(images)})
@@ -252,17 +252,23 @@ def parse_files():
         parsed_images = []
         failed_images = []
 
+        #경로 변환 함수 추가
+        def normalize_path(path):
+            """Windows와 Linux 경로를 통일하는 함수"""
+            if os.name == "nt":  
+                path = path.replace("mnt\\", "/mnt/")  # 역슬래시를 슬래시로 변환
+            return path.replace("\\", "/")  # 모든 역슬래시를 슬래시로 변경
+
         for processed in processed_images:
-            #  디버깅: process_images()의 반환값을 확인
             logger.info(f"🔍 처리된 이미지: {processed}")
-
-            if 'FilePath' not in processed or not processed['FilePath']:
-                logger.error(f"⚠️ 처리된 이미지에 FilePath가 없음: {processed}")
-                failed_images.append(processed.get('FileName', 'Unknown'))
-                continue
-
+            
+            # MongoDB에서 찾으려는 파일명과 비교 로그
+            existing_doc = db.images.find_one({'OriginalFileName': processed['OriginalFileName']})
+            if not existing_doc:
+                logger.error(f"MongoDB에서 해당 파일을 찾을 수 없음: {processed['OriginalFileName']}")
+            
             result = db.images.update_one(
-                {'FilePath': processed['FilePath']},
+                {'OriginalFileName': processed['OriginalFileName']},  # 원본 파일명 기반으로 찾기
                 {
                     '$set': {
                         'SerialNumber': processed.get('SerialNumber', ''),
@@ -275,18 +281,10 @@ def parse_files():
                 }
             )
 
-            #  디버깅: MongoDB 업데이트 결과 확인
-            logger.info(f" MongoDB 업데이트 결과: matched={result.matched_count}, modified={result.modified_count}")
+            logger.info(f"MongoDB 업데이트 결과: matched={result.matched_count}, modified={result.modified_count}")
 
             if result.modified_count > 0:
                 update_count += 1
-                parsed_images.append({
-                    'image_id': str(processed.get('_id', '')),
-                    'filename': processed.get('FileName', ''),
-                    'serial_number': processed.get('SerialNumber', ''),
-                    'datetime': processed.get('DateTimeOriginal', ''),
-                    'evtnum': processed.get('evtnum')
-                })
             else:
                 failed_images.append(processed.get('FileName', 'Unknown'))
 
@@ -299,3 +297,4 @@ def parse_files():
     except Exception as e:
         logger.error(f"EXIF parsing error: {str(e)}")
         return handle_exception(e)
+
