@@ -394,6 +394,28 @@ def delete_image(image_id):
             "status": 500,
             "message": f"서버 오류: {str(e)}"
         }), 500
+        
+        
+        
+def generate_image_url(thumbnail_path):
+    """
+    Generate a URL for the given thumbnail path.
+    """
+    if not thumbnail_path:
+        # thumbnail_path가 None 또는 빈 문자열인 경우 기본값 반환
+        return None
+
+    # ./mnt/ 부분을 제거하고 나머지 경로를 사용
+    if thumbnail_path.startswith('./mnt/'):
+        relative_path = thumbnail_path[len('./mnt/'):]
+    else:
+        # 예상과 다른 경로 형식인 경우 로그 출력
+        app.logger.error(f"Unexpected thumbnail path format: {thumbnail_path}")
+        return None
+
+    # URL 생성
+    return f"http://localhost:5000/images/{relative_path}"
+
 @classification_bp.route('/inspection/normal', methods=['GET'])
 @jwt_required()
 def get_normal_inspection_images():
@@ -405,6 +427,7 @@ def get_normal_inspection_images():
     - end_date: 종료 날짜 (YYYY-MM-DD)
     - serial_number: 카메라 시리얼
     - species_name: 종 이름
+    - evtnum: 이벤트 번호 (그룹 조회용)
     - page: 페이지 번호 (default: 1)
     - per_page: 페이지당 이미지 수 (default: 20)
     """
@@ -415,6 +438,7 @@ def get_normal_inspection_images():
         end_date = request.args.get('end_date')
         serial_number = request.args.get('serial_number')
         species_name = request.args.get('species_name')
+        evtnum = request.args.get('evtnum')
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 20))
 
@@ -433,6 +457,8 @@ def get_normal_inspection_images():
             query['SerialNumber'] = serial_number
         if species_name:
             query['BestClass'] = species_name  # 종 필터 적용
+        if evtnum:
+            query['evtnum'] = int(evtnum)
 
         # 이미지 조회
         total = db.images.count_documents(query)
@@ -443,7 +469,8 @@ def get_normal_inspection_images():
             'DateTimeOriginal': 1,
             'ProjectInfo.ProjectName': 1,
             'SerialNumber': 1,
-            'BestClass': 1
+            'BestClass': 1,
+            'evtnum': 1
         }).skip((page - 1) * per_page).limit(per_page))
 
         return jsonify({
@@ -456,11 +483,13 @@ def get_normal_inspection_images():
             "images": [{
                 "imageId": str(img['_id']),
                 "fileName": img['FileName'],
-                "imageUrl": img['ThumnailPath'],
+                "imageUrl": generate_image_url(img.get('ThumnailPath')),
                 "uploadDate": img['DateTimeOriginal'],
                 "projectName": img.get('ProjectInfo', {}).get('ProjectName', ''),
                 "serialNumber": img.get('SerialNumber', ''),
-                "speciesName": img.get('BestClass', '미확인')
+                "speciesName": img.get('BestClass', '미확인'),
+                "evtnum": img.get('evtnum', ''),
+                "exception_status": img.get('exception_status', ''),
             } for img in images]
         }), 200
 
@@ -493,6 +522,7 @@ def get_exception_inspection_images():
         exception_status = request.args.get('exception_status')
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 20))
+        evtnum = request.args.get('evtnum')
 
         # 기본 쿼리 조건 (미분류된 이미지만 조회)
         query = {'is_classified': False}
@@ -509,6 +539,8 @@ def get_exception_inspection_images():
             query['SerialNumber'] = serial_number
         if exception_status:
             query['exception_status'] = exception_status  # 예외 상태 필터 적용
+        if evtnum:
+            query['evtnum'] = int(evtnum)
 
         # 이미지 조회
         total = db.images.count_documents(query)
@@ -519,7 +551,8 @@ def get_exception_inspection_images():
             'DateTimeOriginal': 1,
             'ProjectInfo.ProjectName': 1,
             'SerialNumber': 1,
-            'exception_status': 1
+            'exception_status': 1,
+            'evtnum': 1
         }).skip((page - 1) * per_page).limit(per_page))
 
         return jsonify({
@@ -532,11 +565,12 @@ def get_exception_inspection_images():
             "images": [{
                 "imageId": str(img['_id']),
                 "fileName": img['FileName'],
-                "imageUrl": img['ThumnailPath'],
+                "imageUrl": generate_image_url(img.get('ThumnailPath')),
                 "uploadDate": img['DateTimeOriginal'],
                 "projectName": img.get('ProjectInfo', {}).get('ProjectName', ''),
                 "serialNumber": img.get('SerialNumber', ''),
-                "exceptionStatus": img.get('exception_status', 'pending')
+                "exceptionStatus": img.get('exception_status', 'pending'),
+                "evtnum": img.get('evtnum', '') 
             } for img in images]
         }), 200
 
