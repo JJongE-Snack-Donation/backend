@@ -1,4 +1,4 @@
-from flask import Blueprint, send_file, request
+from flask import Blueprint, send_file, request, current_app
 from flask_jwt_extended import jwt_required
 from bson import ObjectId
 from typing import Tuple, Dict, Any, Union
@@ -14,32 +14,35 @@ download_bp = Blueprint('download', __name__)
 
 @download_bp.route('/download/image/<image_id>', methods=['GET'])
 @jwt_required()
-def download_image(image_id: str) -> Union[Tuple[Dict[str, Any], int], Any]:
+def download_image(image_id: str):
     """단일 이미지 다운로드 API"""
     try:
-        # 이미지 정보 조회
         image = db.images.find_one({'_id': ObjectId(image_id)})
         if not image:
-            return handle_exception(
-                Exception(MESSAGES['error']['not_found']),
-                error_type="validation_error"
-            )
-            
-        file_path = image.get('FilePath')
-        if not file_path or not os.path.exists(file_path):
-            return handle_exception(
-                Exception("파일을 찾을 수 없습니다"),
-                error_type="file_error"
-            )
-            
-        return send_file(
-            file_path,
-            as_attachment=True,
-            download_name=image.get('FileName', 'image.jpg')
-        )
+            return handle_exception(Exception(MESSAGES['error']['not_found']), error_type="validation_error")
         
+        relative_path = image.get('FilePath')
+        if not relative_path:
+            return handle_exception(Exception("파일 경로 정보가 없습니다"), error_type="file_error")
+        
+        # 상대 경로를 절대 경로로 변환
+        if relative_path.startswith('./'):
+            relative_path = relative_path[2:]  # './' 제거
+        
+        # 애플리케이션의 루트 디렉토리를 기준으로 절대 경로 생성
+        file_path = os.path.join(current_app.root_path, relative_path)
+        
+        if not os.path.isfile(file_path):
+            return handle_exception(Exception(f"파일을 찾을 수 없습니다: {file_path}"), error_type="file_error")
+        
+        file_name = os.path.basename(file_path)
+        
+        return send_file(file_path, as_attachment=True, download_name=file_name)
+    
     except Exception as e:
         return handle_exception(e, error_type="file_error")
+
+
 
 @download_bp.route('/download/images', methods=['POST'])
 @jwt_required()
@@ -63,8 +66,18 @@ def download_multiple_images() -> Union[Tuple[Dict[str, Any], int], Any]:
                 if not image:
                     continue
                     
-                file_path = image.get('FilePath')
-                if not file_path or not os.path.exists(file_path):
+                relative_path = image.get('FilePath')
+                if not relative_path:
+                    continue
+
+                # 상대 경로를 절대 경로로 변환
+                if relative_path.startswith('./'):
+                    relative_path = relative_path[2:]  # './' 제거
+                
+                # 애플리케이션의 루트 디렉토리를 기준으로 절대 경로 생성
+                file_path = os.path.join(current_app.root_path, relative_path)
+                
+                if not os.path.isfile(file_path):
                     continue
                     
                 # ZIP 파일에 이미지 추가
