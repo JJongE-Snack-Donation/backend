@@ -112,7 +112,10 @@ def search_normal_inspection():
                 "project_name": img.get('ProjectInfo', {}).get('ProjectName', ''),
                 "count": img.get('Count', 0),
                 "event_number": img.get('evtnum', 0),
-                "is_classified": img.get('is_classified', False)
+                "is_classified": img.get('is_classified', True),
+                  "latitude": img.get('Latitude', None),
+                "longitude": img.get('Longitude', None),  
+                "accuracy": img.get('Accuracy', 0)  
             } for img in images]
         }), 200
 
@@ -219,7 +222,10 @@ def search_exception_inspection():
                 "project_name": img.get('ProjectInfo', {}).get('ProjectName', ''),
                 "exception_status": img.get('exception_status', 'pending'),
                 "event_number": img.get('evtnum', 0),
-                "is_classified": img.get('is_classified', False)
+                "is_classified": img.get('is_classified', False),
+                "latitude": img.get('Latitude', None),  
+                "longitude": img.get('Longitude', None),  
+                "accuracy": img.get('Accuracy', 0)  
             } for img in images]
         }), 200
 
