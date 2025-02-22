@@ -9,7 +9,7 @@ import os
 from bson import ObjectId
 from bson.binary import Binary
 from datetime import datetime
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Any
 
 from ..database import db
 from ..utils.response import standard_response, handle_exception
@@ -22,11 +22,7 @@ model = YOLO(AI_MODEL_PATH)
 
 def add_object_counts(detections, model) -> Dict[str, int]:
     """객체 카운트 집계"""
-    object_counts = {
-        'deer': 0,
-        'pig': 0,
-        'racoon': 0
-    }
+    object_counts = {'deer': 0, 'pig': 0, 'racoon': 0}
 
     for detection in detections.boxes.data:
         _, _, _, _, confidence, class_id = detection
@@ -68,9 +64,11 @@ def process_detection(image_data: bytes, image_id: str) -> Dict:
                 valid_detections += 1
                 class_name = model.names[int(class_id)]
                 detection_results.append({
-                    'class': class_name,
-                    'confidence': float(confidence * 100),
-                    'bbox': [float(x1), float(y1), float(x2), float(y2)]
+                    'best_class': class_name,  # 추가
+                    'best_probability': float(confidence * 100),  # << 여기에 정확도 저장
+                    'name': class_name,
+                    'bbox': [float(x1), float(y1), float(x2), float(y2)],
+                    'new_bbox': [float(x1), float(y1), float(x2), float(y2)]  # 임시로 원본 bbox 유지
                 })
                 annotator.box_label([x1, y1, x2, y2], label=class_name, color=(255, 0, 0))
 
@@ -115,8 +113,9 @@ def detect_objects():
             upsert=True
         )
 
+        results = []
+
         def background_process(image_ids):
-            results = []
             processed_count = 0
 
             for image_id in image_ids:
@@ -124,7 +123,7 @@ def detect_objects():
                 if not image_doc:
                     continue
 
-                # MongoDB에서 이미지 데이터 대신 파일 경로를 가져와서 로컬에서 읽기
+                # MongoDB에서 이미지 파일 경로 조회
                 file_path = image_doc.get('FilePath')
                 if not file_path or not os.path.exists(file_path):
                     db.failed_results.insert_one({
@@ -139,11 +138,12 @@ def detect_objects():
                     image_data = f.read()
 
                 detection_result = process_detection(image_data, str(image_id))
+                results.append(detection_result)
 
                 update_data = {
-                    'Infos': detection_result['detections'],
+                    'Infos': detection_result['detections'],  # << best_probability 포함됨
                     'Count': sum(detection_result['object_counts'].values()),
-                    'Accuracy': detection_result['detections'][0]['confidence'] if detection_result['detections'] else 0,
+                    'Accuracy': max((d['best_probability'] for d in detection_result['detections']), default=0),  # 최고 정확도
                     'AI_processed': True,
                     'AI_process_date': datetime.utcnow(),
                     'detection_image': detection_result['result_image'],
@@ -151,7 +151,7 @@ def detect_objects():
                 }
 
                 if detection_result['detections']:
-                    update_data['BestClass'] = detection_result['detections'][0]['class']
+                    update_data['BestClass'] = detection_result['detections'][0]['best_class']  # << 최고 확률 객체 저장
                     db.detect_images.update_one({'Image_id': image_id}, {'$set': update_data}, upsert=True)
                 else:
                     db.failed_results.insert_one({
@@ -162,7 +162,6 @@ def detect_objects():
                     })
 
                 processed_count += 1
-                results.append(detection_result)
 
                 # 진행률 업데이트
                 progress_percentage = 50 + (processed_count / total_images * 50)
@@ -183,7 +182,15 @@ def detect_objects():
         return jsonify({
             "message": "객체 검출이 진행 중입니다",
             "progress": 50,
-            "total_images": total_images
+            "total_images": total_images,
+            "detections": [
+                {
+                    "image_id": result["image_id"],
+                    "detections": result["detections"],
+                    "object_counts": result["object_counts"]
+                }
+                for result in results
+            ] if results else []
         }), 202  
 
     except Exception as e:
