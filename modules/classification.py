@@ -52,33 +52,35 @@ def update_image(image_id, update_data, is_classified):
 @classification_bp.route('/images', methods=['GET'])
 @jwt_required()
 def list_images() -> Tuple[Dict[str, Any], int]:
-    """이미지 목록 조회 API"""
+    """검수 완료된 이미지 목록 조회 API"""
     try:
         is_classified = request.args.get('classified', default=None)
         if is_classified is not None:
             is_classified = is_classified.lower() == 'true'
-            
+
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', PER_PAGE_DEFAULT))
-        
-        query: Dict[str, Any] = {}
+
+        # 기본 쿼리: 검수 완료된 이미지만 조회
+        query: Dict[str, Any] = {'inspection_complete': True}
+
         if is_classified is not None:
             query['is_classified'] = is_classified
-            
+
         total = db.images.count_documents(query)
         images: List[Dict[str, Any]] = list(db.images.find(query)
                      .skip((page - 1) * per_page)
                      .limit(per_page))
-                     
+
         for image in images:
             image['_id'] = str(image['_id'])
-            
+
         return standard_response(
-            "이미지 목록 조회 성공",
+            "검수 완료된 이미지 목록 조회 성공",
             data={'images': images},
             meta=pagination_meta(total, page, per_page)
         )
-        
+
     except ValueError:
         return handle_exception(
             Exception("페이지 번호가 유효하지 않습니다"),
@@ -86,6 +88,7 @@ def list_images() -> Tuple[Dict[str, Any], int]:
         )
     except Exception as e:
         return handle_exception(e, error_type="db_error")
+
 
 @classification_bp.route('/classified-images/<image_id>', methods=['GET'])
 @jwt_required()
