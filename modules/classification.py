@@ -776,6 +776,8 @@ def batch_classify() -> Tuple[Dict[str, Any], int]:
         update_dict: Dict[str, Any] = {
             'is_classified': True,
             'classification_date': datetime.utcnow(),
+            'inspection_complete': True,  
+            'inspection_date': datetime.utcnow(),  
             **classification
         }
         
