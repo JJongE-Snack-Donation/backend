@@ -129,6 +129,7 @@ def get_classified_image_details(image_id):
                     "BestClass": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]}, # detect_images 없으면 images 값 사용
                     "Accuracy": {"$ifNull": ["$detection_data.Accuracy", "$Accuracy"]},  # detect_images 없으면 images 값 사용
                     "species": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]},  # 종명 추가
+                    "Count": {"$ifNull": ["$detection_data.Count", "$Count"]},
                     "is_classified": 1,
                     "classification_date": 1,
                     "inspection_status": 1,
@@ -187,6 +188,7 @@ def get_unclassified_image_details(image_id):
                     "BestClass": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]}, # detect_images 없으면 images 값 사용
                     "Accuracy": {"$ifNull": ["$detection_data.Accuracy", "$Accuracy"]},  # detect_images 없으면 images 값 사용
                     "species": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]},  # 종명 추가
+                    "Count": {"$ifNull": ["$detection_data.Count", "$Count"]},
                     "is_classified": 1,
                     "classification_date": 1,
                     "inspection_status": 1,
