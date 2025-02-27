@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -516,7 +516,7 @@ def generate_image_url(thumbnail_path):
         relative_path = thumbnail_path[len('./mnt/'):]
     else:
         # 예상과 다른 경로 형식인 경우 로그 출력
-        app.logger.error(f"Unexpected thumbnail path format: {thumbnail_path}")
+        current_app.logger.error(f"Unexpected thumbnail path format: {thumbnail_path}")
         return None
 
     # URL 생성
