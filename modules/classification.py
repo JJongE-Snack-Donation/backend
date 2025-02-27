@@ -342,28 +342,90 @@ def update_unclassified_image_endpoint(image_id):
     except Exception as e:
         return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
 
-@classification_bp.route('/images/unclassified', methods=['GET'])
+@classification_bp.route('/images/<image_id>', methods=['GET'])
 @jwt_required()
-def get_unclassified_images():
-    """미분류 이미지 리스트 조회 API"""
+def get_image_detail(image_id):
+    """검수 완료된 이미지 상세 정보 조회 API"""
     try:
-        page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 20))
-        
-        images = list(db.images.find(
-            {'is_classified': False},
-            {'_id': 1, 'FileName': 1, 'ThumnailPath': 1, 'DateTimeOriginal': 1}
-        ).skip((page - 1) * per_page).limit(per_page))
-        
+        object_id = ObjectId(image_id)
+
+        # images와 detect_images를 조인하여 데이터 조회
+        result = db.images.aggregate([
+            {"$match": {"_id": object_id, "inspection_complete": True}},  # 검수 완료된 이미지만 조회
+            {
+                "$lookup": {
+                    "from": "detect_images",  # detect_images 컬렉션과 조인
+                    "let": { "imageId": "$_id" },
+                    "pipeline": [
+                        { "$match": { "$expr": { "$eq": ["$Image_id", "$$imageId"] } } }
+                    ],
+                    "as": "detection_data"
+                }
+            },
+            {"$unwind": {"path": "$detection_data", "preserveNullAndEmptyArrays": True}},  # detect_images 데이터가 없을 경우 허용
+            {
+                "$project": {
+                    "_id": 1,
+                    "FileName": 1,
+                    "FilePath": {"$ifNull": ["$FilePath", ""]},
+                    "ThumnailPath": {"$ifNull": ["$ThumnailPath", ""]},
+                    "DateTimeOriginal": 1,
+                    "SerialNumber": 1,
+                    "ProjectInfo": 1,
+                    "Latitude": {"$ifNull": ["$detection_data.Latitude", "$Latitude"]},
+                    "Longitude": {"$ifNull": ["$detection_data.Longitude", "$Longitude"]},
+                    "BestClass": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]},
+                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", "$Accuracy"]},
+                    "species": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]},
+                    "Count": {"$ifNull": ["$detection_data.Count", "$Count"]},  # 개체 수 추가
+                    "is_classified": 1,
+                    "classification_date": 1,
+                    "inspection_status": 1,
+                    "inspection_date": 1,
+                    "inspection_complete": 1,
+                    "exception_status": 1,
+                    "exception_comment": 1,
+                    "is_favorite": 1
+                }
+            }
+        ])
+
+        image_data = list(result)
+        if not image_data:
+            return jsonify({"status": 404, "message": "검수 완료된 이미지를 찾을 수 없음"}), 404
+
+        image = image_data[0]
+
+        # 촬영 날짜를 ISO 8601 형식으로 변환
+        capture_date = image.get("DateTimeOriginal")
+        if capture_date:
+            capture_date = capture_date.isoformat()
+
         return jsonify({
             "status": 200,
-            "images": [{
-                "imageId": str(img['_id']),
-                "imageUrl": img['ThumnailPath'],
-                "uploadDate": img['DateTimeOriginal']
-            } for img in images]
+            "image": {
+                "imageId": str(image["_id"]),
+                "classificationResult": image.get("BestClass", "미확인"),
+                "details": {
+                    "captureDate": capture_date,
+                    "location": image.get("ProjectInfo", {}).get("ProjectName", "위치 정보 없음"),
+                    "animalType": image.get("BestClass"),
+                    "latitude": image.get("Latitude"),
+                    "longitude": image.get("Longitude"),
+                    "accuracy": image.get("Accuracy"),
+                    "count": image.get("Count"),  
+                    "thumbnailUrl": image.get("ThumnailPath"),  
+                    "originalFilePath": image.get("FilePath"),  
+                    "inspectionStatus": image.get("inspection_status"),  
+                    "inspectionDate": image.get("inspection_date"),  
+                    "classificationDate": image.get("classification_date"),  
+                    "exceptionStatus": image.get("exception_status"),  
+                    "exceptionComment": image.get("exception_comment"),  
+                    "isFavorite": image.get("is_favorite")  
+                }
+            }
         }), 200
-        
+
     except Exception as e:
         return jsonify({
             "status": 500,
