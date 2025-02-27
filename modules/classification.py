@@ -147,9 +147,6 @@ def get_classified_image_details(image_id):
     except Exception as e:
         return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
 
-
-classification_bp = Blueprint('classification', __name__)
-
 @classification_bp.route('/unclassified-images/<image_id>', methods=['GET'])
 @jwt_required()
 def get_unclassified_image_details(image_id):
