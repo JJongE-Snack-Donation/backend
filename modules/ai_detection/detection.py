@@ -153,6 +153,9 @@ def detect_objects():
                 if detection_result['detections']:
                     update_data['BestClass'] = detection_result['detections'][0]['best_class']  # << 최고 확률 객체 저장
                     db.detect_images.update_one({'Image_id': image_id}, {'$set': update_data}, upsert=True)
+
+                    # images 컬렉션에도 is_classified 업데이트 추가
+                    db.images.update_one({'_id': ObjectId(image_id)}, {'$set': {'is_classified': True}})
                 else:
                     db.failed_results.insert_one({
                         'Image_id': image_id,
@@ -160,6 +163,9 @@ def detect_objects():
                         'Reason': 'No objects detected',
                         'Timestamp': datetime.utcnow()
                     })
+
+                    # 객체 검출 실패 시 images 컬렉션에도 is_classified를 False로 설정
+                    db.images.update_one({'_id': ObjectId(image_id)}, {'$set': {'is_classified': False}})
 
                 processed_count += 1
 
