@@ -100,14 +100,55 @@ def get_classified_image_details(image_id):
     """
     try:
         object_id = ObjectId(image_id)
-        result = get_classified_image_detail(object_id)
         
-        if not result:
+        # images와 detect_images를 조인하여 데이터 조회
+        result = db.images.aggregate([
+            {"$match": {"_id": object_id}},  # images 컬렉션에서 해당 이미지 찾기
+            {
+                "$lookup": {
+                    "from": "detect_images",  # detect_images 컬렉션과 조인
+                    "localField": "_id",
+                    "foreignField": "Image_id",
+                    "as": "detection_data"
+                }
+            },
+            {"$unwind": {"path": "$detection_data", "preserveNullAndEmptyArrays": True}},  # 데이터가 없을 경우 허용
+            {
+                "$project": {
+                    "_id": 1,
+                    "FileName": 1,
+                    "FilePath": 1,
+                    "ThumnailPath": 1,
+                    "DateTimeOriginal": 1,
+                    "SerialNumber": 1,
+                    "ProjectInfo": 1,
+                    "Latitude": {"$ifNull": ["$detection_data.Latitude", None]},  # detect_images에서 가져오기
+                    "Longitude": {"$ifNull": ["$detection_data.Longitude", None]},
+                    "BestClass": {"$ifNull": ["$detection_data.BestClass", "미확인"]},
+                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", 0]},
+                    "is_classified": 1,
+                    "classification_date": 1,
+                    "inspection_status": 1,
+                    "inspection_date": 1,
+                    "inspection_complete": 1,
+                    "exception_status": 1,
+                    "exception_comment": 1,
+                    "is_favorite": 1
+                }
+            }
+        ])
+
+        image_data = list(result)
+        if not image_data:
             return jsonify({'message': 'Classified image not found'}), 404
-        
-        return jsonify(result), 200
+
+        return jsonify(image_data[0]), 200
+
     except Exception as e:
         return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
+
+
+classification_bp = Blueprint('classification', __name__)
 
 @classification_bp.route('/unclassified-images/<image_id>', methods=['GET'])
 @jwt_required()
@@ -119,14 +160,42 @@ def get_unclassified_image_details(image_id):
     """
     try:
         object_id = ObjectId(image_id)
-        result = get_unclassified_image_detail(object_id)
-        
-        if not result:
+        result = db.images.aggregate([
+            {"$match": {"_id": object_id}},  # images 컬렉션에서 이미지 찾기
+            {
+                "$lookup": {
+                    "from": "detect_images",  # detect_images 컬렉션과 조인
+                    "localField": "_id",
+                    "foreignField": "Image_id",
+                    "as": "detection_data"
+                }
+            },
+            {"$unwind": {"path": "$detection_data", "preserveNullAndEmptyArrays": True}},  # 데이터가 없을 경우 허용
+            {
+                "$project": {
+                    "_id": 1,
+                    "FileName": 1,
+                    "FilePath": 1,
+                    "DateTimeOriginal": 1,
+                    "SerialNumber": 1,
+                    "ProjectInfo": 1,
+                    "Latitude": {"$ifNull": ["$detection_data.Latitude", None]},
+                    "Longitude": {"$ifNull": ["$detection_data.Longitude", None]},
+                    "BestClass": {"$ifNull": ["$detection_data.BestClass", "미확인"]},
+                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", 0]},
+                }
+            }
+        ])
+
+        image_data = list(result)
+        if not image_data:
             return jsonify({'message': 'Unclassified image not found'}), 404
-        
-        return jsonify(result), 200
+
+        return jsonify(image_data[0]), 200
+
     except Exception as e:
         return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
+
 
 @classification_bp.route('/classified-images/<image_id>', methods=['DELETE'])
 @jwt_required()
@@ -329,27 +398,60 @@ def get_classified_images():
 def get_image_detail(image_id):
     """이미지 상세 정보 조회 API"""
     try:
-        image = db.images.find_one({'_id': ObjectId(image_id)})
-        if not image:
-            return jsonify({
-                "status": 404,
-                "message": "이미지를 찾을 수 없음"
-            }), 404
+        object_id = ObjectId(image_id)
+
+        # images와 detect_images를 조인하여 데이터 조회
+        result = db.images.aggregate([
+            {"$match": {"_id": object_id}},  # images 컬렉션에서 해당 이미지 찾기
+            {
+                "$lookup": {
+                    "from": "detect_images",  # detect_images 컬렉션과 조인
+                    "localField": "_id",
+                    "foreignField": "Image_id",
+                    "as": "detection_data"
+                }
+            },
+            {"$unwind": {"path": "$detection_data", "preserveNullAndEmptyArrays": True}},  # detect_images 데이터가 없을 경우 허용
+            {
+                "$project": {
+                    "_id": 1,
+                    "FileName": 1,
+                    "FilePath": 1,
+                    "ThumnailPath": 1,
+                    "DateTimeOriginal": 1,
+                    "SerialNumber": 1,
+                    "ProjectInfo": 1,
+                    "Latitude": {"$ifNull": ["$detection_data.Latitude", None]},
+                    "Longitude": {"$ifNull": ["$detection_data.Longitude", None]},
+                    "BestClass": {"$ifNull": ["$detection_data.BestClass", "미확인"]},
+                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", 0]},
+                }
+            }
+        ])
+
+        image_data = list(result)
+        if not image_data:
+            return jsonify({"status": 404, "message": "이미지를 찾을 수 없음"}), 404
+
+        image = image_data[0]
 
         # 촬영 날짜를 ISO 8601 형식으로 변환
-        capture_date = image.get('DateTimeOriginal')
+        capture_date = image.get("DateTimeOriginal")
         if capture_date:
             capture_date = capture_date.isoformat()
 
         return jsonify({
             "status": 200,
             "image": {
-                "imageId": str(image['_id']),
-                "classificationResult": image.get('BestClass', '미확인'),
+                "imageId": str(image["_id"]),
+                "classificationResult": image.get("BestClass", "미확인"),
                 "details": {
                     "captureDate": capture_date,
-                    "location": image.get('ProjectInfo', {}).get('ProjectName', '위치 정보 없음'),
-                    "animalType": image.get('BestClass')
+                    "location": image.get("ProjectInfo", {}).get("ProjectName", "위치 정보 없음"),
+                    "animalType": image.get("BestClass"),
+                    "latitude": image.get("Latitude"),
+                    "longitude": image.get("Longitude"),
+                    "accuracy": image.get("Accuracy"),
                 }
             }
         }), 200
@@ -359,6 +461,7 @@ def get_image_detail(image_id):
             "status": 500,
             "message": f"서버 오류: {str(e)}"
         }), 500
+
 
 
 @classification_bp.route('/images/<image_id>', methods=['DELETE'])
