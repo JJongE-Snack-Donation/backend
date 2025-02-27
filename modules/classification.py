@@ -107,8 +107,10 @@ def get_classified_image_details(image_id):
             {
                 "$lookup": {
                     "from": "detect_images",  # detect_images 컬렉션과 조인
-                    "localField": "_id",
-                    "foreignField": "Image_id",
+                    "let": { "imageId": "$_id" },  # ObjectId 변환
+                    "pipeline": [
+                        { "$match": { "$expr": { "$eq": ["$Image_id", "$$imageId"] } } }
+                    ],
                     "as": "detection_data"
                 }
             },
@@ -122,10 +124,11 @@ def get_classified_image_details(image_id):
                     "DateTimeOriginal": 1,
                     "SerialNumber": 1,
                     "ProjectInfo": 1,
-                    "Latitude": {"$ifNull": ["$detection_data.Latitude", None]},  # detect_images에서 가져오기
-                    "Longitude": {"$ifNull": ["$detection_data.Longitude", None]},
-                    "BestClass": {"$ifNull": ["$detection_data.BestClass", "미확인"]},
-                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", 0]},
+                    "Latitude": {"$ifNull": ["$detection_data.Latitude", "$Latitude"]},  # detect_images 없으면 images 값 사용
+                    "Longitude": {"$ifNull": ["$detection_data.Longitude", "$Longitude"]},
+                    "BestClass": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]}, # detect_images 없으면 images 값 사용
+                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", "$Accuracy"]},  # detect_images 없으면 images 값 사용
+                    "species": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]},  # 종명 추가
                     "is_classified": 1,
                     "classification_date": 1,
                     "inspection_status": 1,
@@ -161,9 +164,11 @@ def get_unclassified_image_details(image_id):
             {"$match": {"_id": object_id}},  # images 컬렉션에서 이미지 찾기
             {
                 "$lookup": {
-                    "from": "detect_images",  # detect_images 컬렉션과 조인
-                    "localField": "_id",
-                    "foreignField": "Image_id",
+                    "from": "detect_images",
+                    "let": { "imageId": "$_id" },  # ObjectId 변환
+                    "pipeline": [
+                        { "$match": { "$expr": { "$eq": ["$Image_id", "$$imageId"] } } }
+                    ],
                     "as": "detection_data"
                 }
             },
@@ -172,26 +177,46 @@ def get_unclassified_image_details(image_id):
                 "$project": {
                     "_id": 1,
                     "FileName": 1,
-                    "FilePath": 1,
+                    "FilePath": {"$ifNull": ["$FilePath", ""]},  # 일반검수 API와 동일한 구조 유지
+                    "ThumnailPath": {"$ifNull": ["$ThumnailPath", ""]},  # 일반검수 API에 맞춰 추가
                     "DateTimeOriginal": 1,
                     "SerialNumber": 1,
                     "ProjectInfo": 1,
-                    "Latitude": {"$ifNull": ["$detection_data.Latitude", None]},
-                    "Longitude": {"$ifNull": ["$detection_data.Longitude", None]},
-                    "BestClass": {"$ifNull": ["$detection_data.BestClass", "미확인"]},
-                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", 0]},
+                    "Latitude": {"$ifNull": ["$detection_data.Latitude", "$Latitude"]},  # detect_images 없으면 images 값 사용
+                    "Longitude": {"$ifNull": ["$detection_data.Longitude", "$Longitude"]},
+                    "BestClass": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]}, # detect_images 없으면 images 값 사용
+                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", "$Accuracy"]},  # detect_images 없으면 images 값 사용
+                    "species": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]},  # 종명 추가
+                    "is_classified": 1,
+                    "classification_date": 1,
+                    "inspection_status": 1,
+                    "inspection_date": 1,
+                    "inspection_complete": 1,
+                    "exception_status": 1,
+                    "exception_comment": 1,
+                    "is_favorite": 1
                 }
             }
         ])
 
         image_data = list(result)
         if not image_data:
-            return jsonify({'message': 'Unclassified image not found'}), 404
+            return jsonify({
+                "status": 404,
+                "message": "Unclassified image not found"
+            }), 404
 
-        return jsonify(image_data[0]), 200
+        return jsonify({
+            "status": 200,
+            "data": image_data[0]
+        }), 200
 
     except Exception as e:
-        return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
+        return jsonify({
+            "status": 400,
+            "message": "Invalid image ID format or other error",
+            "error": str(e)
+        }), 400
 
 
 @classification_bp.route('/classified-images/<image_id>', methods=['DELETE'])
