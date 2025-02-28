@@ -111,13 +111,19 @@ def assign_evtnum_to_group(images: List[Dict], evt_num: int) -> List[Dict]:
         img['evtnum'] = evt_num
     return images
 
-def group_images_by_time(image_list: List[Dict]) -> List[Dict]:
-    """시간 기준으로 이미지를 그룹화하고 evtnum 할당"""
+def get_next_evtnum(project_id: str) -> int:
+    """해당 프로젝트에서 가장 큰 evtnum을 찾아 +1을 반환"""
+    last_entry = db.images.find({"ProjectInfo.ID": project_id}).sort("evtnum", -1).limit(1)
+    last_evtnum = next(last_entry, {}).get("evtnum", 0)  
+    return last_evtnum + 1  
+
+def group_images_by_time(image_list: List[Dict], project_id: str) -> List[Dict]:
+    """시간 기준으로 이미지를 그룹화하고 evtnum 할당 (DB의 마지막 evtnum 기준으로 이어서 진행)"""
     if not image_list:
         return []
 
     result = []
-    evt_num = 1
+    evt_num = get_next_evtnum(project_id)  # 기존 evtnum에서 이어서 진행
 
     # SerialNumber와 FileName으로 그룹화
     grouped_by_serial = {}
@@ -134,7 +140,7 @@ def group_images_by_time(image_list: List[Dict]) -> List[Dict]:
             current_time = datetime.fromisoformat(
                 img['DateTimeOriginal']['$date'].replace('Z', '')
             )
-            
+
             if not base_time or (current_time - base_time).total_seconds() / 60 <= GROUP_TIME_LIMIT:
                 current_group.append(img)
                 if base_time is None:
@@ -143,11 +149,11 @@ def group_images_by_time(image_list: List[Dict]) -> List[Dict]:
                 result.extend(assign_evtnum_to_group(current_group, evt_num))
                 current_group = [img]
                 base_time = current_time
-                evt_num += 1
+                evt_num += 1  
 
         if current_group:
             result.extend(assign_evtnum_to_group(current_group, evt_num))
-            evt_num += 1
+            evt_num += 1  
 
     return result
 
@@ -187,7 +193,7 @@ def process_images(image_paths: List[str], project_info: Dict,
         for img in image_data_list:
             logger.info(f" DateTimeOriginal: {img['DateTimeOriginal']}")  # 디버깅 로그
 
-        grouped_images = group_images_by_time(image_data_list)
+        grouped_images = group_images_by_time(image_data_list, project_info['id'])  # 프로젝트 ID 추가
         logger.info(f" Successfully processed {len(grouped_images)} images")
         return grouped_images
 
