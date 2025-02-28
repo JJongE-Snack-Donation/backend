@@ -114,31 +114,35 @@ def list_images() -> Tuple[Dict[str, Any], int]:
         return handle_exception(e, error_type="db_error")
 
 
+from bson import ObjectId
+
 @classification_bp.route('/classified-images/<image_id>', methods=['GET'])
 @jwt_required()
 def get_classified_image_details(image_id):
-    """
-    일반검수 이미지 상세 정보 조회 API
-    Parameters:
-    - image_id: MongoDB _id (ObjectId)
-    """
+    """일반검수 이미지 상세 정보 조회 API"""
     try:
-        object_id = ObjectId(image_id)
-        
-        # images와 detect_images를 조인하여 데이터 조회
+        # ObjectId 변환을 시도하고, 실패하면 문자열 처리
+        try:
+            object_id = ObjectId(image_id)
+        except Exception:
+            object_id = None  # 변환 실패 시 None 할당
+
+        # images 컬렉션에서 해당 이미지 찾기 + detect_images 조인
+        query_filter = {"_id": object_id} if object_id else {"Image_id": image_id}
+
         result = db.images.aggregate([
-            {"$match": {"_id": object_id}},  # images 컬렉션에서 해당 이미지 찾기
+            {"$match": query_filter},  # ObjectId 조회 또는 Image_id 조회
             {
                 "$lookup": {
-                    "from": "detect_images",  # detect_images 컬렉션과 조인
-                    "let": { "imageId": "$_id" },  # ObjectId 변환
+                    "from": "detect_images",
+                    "let": { "imageId": { "$toString": "$_id" } },  # _id를 문자열로 변환
                     "pipeline": [
                         { "$match": { "$expr": { "$eq": ["$Image_id", "$$imageId"] } } }
                     ],
                     "as": "detection_data"
                 }
             },
-            {"$unwind": {"path": "$detection_data", "preserveNullAndEmptyArrays": True}},  # 데이터가 없을 경우 허용
+            {"$unwind": {"path": "$detection_data", "preserveNullAndEmptyArrays": True}},
             {
                 "$project": {
                     "_id": 1,
@@ -148,12 +152,12 @@ def get_classified_image_details(image_id):
                     "DateTimeOriginal": 1,
                     "SerialNumber": 1,
                     "ProjectInfo": 1,
-                    "Latitude": {"$ifNull": ["$detection_data.Latitude", "$Latitude"]},  # detect_images 없으면 images 값 사용
+                    "Latitude": {"$ifNull": ["$detection_data.Latitude", "$Latitude"]}, 
                     "Longitude": {"$ifNull": ["$detection_data.Longitude", "$Longitude"]},
-                    "BestClass": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]}, # detect_images 없으면 images 값 사용
-                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", "$Accuracy"]},  # detect_images 없으면 images 값 사용
-                    "species": {"$ifNull": ["$detection_data.BestClass", "$BestClass"]},  # 종명 추가
-                    "Count": {"$ifNull": ["$detection_data.Count", "$Count"]},
+                    "BestClass": {"$ifNull": ["$detection_data.BestClass", "미확인"]},
+                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", 0]},
+                    "species": {"$ifNull": ["$detection_data.BestClass", "미확인"]},
+                    "Count": {"$ifNull": ["$detection_data.Count", 0]},
                     "is_classified": 1,
                     "classification_date": 1,
                     "inspection_status": 1,
@@ -174,6 +178,7 @@ def get_classified_image_details(image_id):
 
     except Exception as e:
         return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
+
 
 @classification_bp.route('/unclassified-images/<image_id>', methods=['GET'])
 @jwt_required()

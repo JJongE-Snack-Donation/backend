@@ -48,6 +48,26 @@ def parse_exif_data_batch(image_paths: List[str]) -> List[Dict]:
     except Exception as e:
         logger.error(f"Error in batch EXIF data parsing: {str(e)}")
         return []
+def convert_gps_to_decimal(gps_data, ref):
+    """
+    EXIF GPS 데이터를 십진법(Decimal Degrees)으로 변환하는 함수
+    gps_data: [도, 분, 초] 형식
+    ref: 'N', 'S', 'E', 'W' 방향
+    """
+    try:
+        degrees = float(gps_data[0])
+        minutes = float(gps_data[1]) / 60
+        seconds = float(gps_data[2]) / 3600
+        decimal = degrees + minutes + seconds
+
+        # 남반구(S) 또는 서경(W)일 경우 음수 처리
+        if ref in ['S', 'W']:
+            decimal *= -1
+
+        return round(decimal, 6)  # 소수점 6자리까지 변환
+    except Exception as e:
+        logger.error(f"Error converting GPS data: {str(e)}")
+        return None
 
 def validate_project_info(project_info: Dict) -> bool:
     """프로젝트 정보 유효성 검사"""
@@ -65,7 +85,7 @@ def create_exif_data(metadata: Dict, image_path: str, project_info: Dict,
 
         if date_time:
             try:
-                # ✅ EXIF 날짜 포맷 변환 (예: '2020:04:28 20:43:45' → '2020-04-28T20:43:45Z')
+                # EXIF 날짜 포맷 변환
                 date_obj = datetime.strptime(date_time, '%Y:%m:%d %H:%M:%S')
             except ValueError:
                 logger.warning(f"Invalid date format in {image_path}, using current time")
@@ -74,10 +94,27 @@ def create_exif_data(metadata: Dict, image_path: str, project_info: Dict,
             date_obj = datetime.utcnow()
             logger.warning(f"No DateTimeOriginal found for {image_path}, using current time")
 
-        # ✅ MongoDB에 ISODate 형식으로 저장 ({"$date": "2020-04-28T20:43:45.000Z"})
+        # MongoDB에 ISODate 형식으로 저장
         date_time_mongo = {"$date": date_obj.isoformat() + "Z"}
 
-        # ✅ project_info에서 "ID" 키 확인
+        # 위도/경도 추출
+        latitude = metadata.get("GPSLatitude")
+        longitude = metadata.get("GPSLongitude")
+
+        # 위도/경도 값이 있을 때만 변환
+        if latitude and longitude:
+            try:
+                latitude = convert_gps_to_decimal(latitude, metadata.get("GPSLatitudeRef", "N"))
+                longitude = convert_gps_to_decimal(longitude, metadata.get("GPSLongitudeRef", "E"))
+            except Exception as e:
+                logger.warning(f"Failed to convert GPS coordinates for {image_path}: {e}")
+                latitude = None
+                longitude = None
+        else:
+            latitude = None
+            longitude = None
+
+        #  project_info에서 "ID" 키 확인
         project_id = project_info.get("ID") or project_info.get("id")
         if not project_id:
             logger.error(f"Project ID missing in project_info: {project_info}")
@@ -99,7 +136,9 @@ def create_exif_data(metadata: Dict, image_path: str, project_info: Dict,
             "ThumnailPath": thumbnail_path,
             "SerialNumber": serial_number,
             "UserLabel": metadata.get("UserLabel", "UNKNOWN"),
-            "DateTimeOriginal": date_time_mongo,  # ✅ MongoDB에서 날짜 검색 가능하도록 변환
+            "DateTimeOriginal": date_time_mongo,
+            "Latitude": latitude,  
+            "Longitude": longitude,  
             
             "ProjectInfo": {
                 "ProjectName": project_info.get("ProjectName", "Unknown"),
@@ -115,10 +154,6 @@ def create_exif_data(metadata: Dict, image_path: str, project_info: Dict,
         logger.error(f"Error creating EXIF data structure: {str(e)}")
         return None
 
-
-
-
-
 def assign_evtnum_to_group(images: List[Dict], evt_num: int) -> List[Dict]:
     """이미지 그룹에 evtnum 할당"""
     for img in images:
@@ -131,22 +166,27 @@ def get_next_evtnum(project_id: str) -> int:
     last_evtnum = next(last_entry, {}).get("evtnum", 0)  
     return last_evtnum + 1  
 
+GROUP_TIME_LIMIT = 5  #  5분 기준으로 그룹화
+
 def group_images_by_time(image_list: List[Dict], project_id: str) -> List[Dict]:
-    """시간 기준으로 이미지를 그룹화하고 evtnum 할당 (DB의 마지막 evtnum 기준으로 이어서 진행)"""
+    """
+    프로젝트 ID를 고려하여 시간 기준으로 이미지를 그룹화하고 evtnum 할당
+    (DB의 마지막 evtnum 기준으로 이어서 진행)
+    """
     if not image_list:
         return []
 
     result = []
-    evt_num = get_next_evtnum(project_id)  # 기존 evtnum에서 이어서 진행
+    evt_num = get_next_evtnum(project_id)  # 프로젝트 ID별 evtnum 가져오기
 
-    # SerialNumber와 FileName으로 그룹화
-    grouped_by_serial = {}
+    # 같은 프로젝트, 같은 SerialNumber 내에서만 그룹핑
+    grouped_by_project_serial = {}
     for img in image_list:
-        key = f"{img['SerialNumber']}_{img['FileName']}"
-        grouped_by_serial.setdefault(key, []).append(img)
+        key = f"{img['ProjectInfo']['ID']}_{img['SerialNumber']}"
+        grouped_by_project_serial.setdefault(key, []).append(img)
 
-    for group in grouped_by_serial.values():
-        sorted_group = sorted(group, key=lambda x: x['DateTimeOriginal']['$date'])
+    for group in grouped_by_project_serial.values():
+        sorted_group = sorted(group, key=lambda x: x['DateTimeOriginal']['$date'])  # 시간순 정렬
         base_time = None
         current_group = []
 
@@ -155,21 +195,24 @@ def group_images_by_time(image_list: List[Dict], project_id: str) -> List[Dict]:
                 img['DateTimeOriginal']['$date'].replace('Z', '')
             )
 
+            # 5분 이내 촬영된 이미지끼리만 같은 그룹으로 묶음
             if not base_time or (current_time - base_time).total_seconds() / 60 <= GROUP_TIME_LIMIT:
                 current_group.append(img)
                 if base_time is None:
                     base_time = current_time
             else:
-                result.extend(assign_evtnum_to_group(current_group, evt_num))
+                result.extend(assign_evtnum_to_group(current_group, evt_num))  # 현재 그룹에 evtnum 할당
                 current_group = [img]
                 base_time = current_time
                 evt_num += 1  
 
+        # 마지막 그룹 추가
         if current_group:
             result.extend(assign_evtnum_to_group(current_group, evt_num))
             evt_num += 1  
 
     return result
+
 
 def process_images(image_paths: List[str], project_info: Dict, 
                   analysis_folder: str, session_id: str) -> List[Dict]:
