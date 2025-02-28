@@ -54,6 +54,8 @@ def validate_project_info(project_info: Dict) -> bool:
     required_fields = ['name', 'id']
     return all(field in project_info for field in required_fields)
 
+from datetime import datetime
+
 def create_exif_data(metadata: Dict, image_path: str, project_info: Dict, 
                     analysis_folder: str, session_id: str) -> Optional[Dict]:
     """EXIF 메타데이터로부터 구조화된 데이터 생성"""
@@ -63,36 +65,45 @@ def create_exif_data(metadata: Dict, image_path: str, project_info: Dict,
 
         if date_time:
             try:
+                # ✅ EXIF 날짜 포맷 변환 (예: '2020:04:28 20:43:45' → '2020-04-28T20:43:45Z')
                 date_obj = datetime.strptime(date_time, '%Y:%m:%d %H:%M:%S')
             except ValueError:
                 logger.warning(f"Invalid date format in {image_path}, using current time")
-                date_obj = datetime.now()
+                date_obj = datetime.utcnow()
         else:
-            date_obj = datetime.now()
+            date_obj = datetime.utcnow()
             logger.warning(f"No DateTimeOriginal found for {image_path}, using current time")
 
-        # 원본 파일명을 기반으로 새로운 파일명 생성 (MongoDB 저장 방식과 동일하게 설정)
-        base_name, ext = os.path.splitext(os.path.basename(image_path))  # 확장자 분리
-        filename = f"{date_obj.strftime('%Y%m%d-%H%M%S')}s1{ext}"  # EXIF DateTimeOriginal 사용
-        thumbnail_filename = f"thum_{filename}"  # 썸네일 파일명도 동일 규칙 적용
+        # ✅ MongoDB에 ISODate 형식으로 저장 ({"$date": "2020-04-28T20:43:45.000Z"})
+        date_time_mongo = {"$date": date_obj.isoformat() + "Z"}
 
-        # 로컬 및 MongoDB 저장 경로 설정
-        file_path = os.path.normpath(f"./mnt/{project_info['id']}/{analysis_folder}/source/{filename}")
-        thumbnail_path = os.path.normpath(f"./mnt/{project_info['id']}/{analysis_folder}/thumbnail/{thumbnail_filename}")
+        # ✅ project_info에서 "ID" 키 확인
+        project_id = project_info.get("ID") or project_info.get("id")
+        if not project_id:
+            logger.error(f"Project ID missing in project_info: {project_info}")
+            return None
+
+        # 파일명 생성
+        base_name, ext = os.path.splitext(os.path.basename(image_path))  
+        filename = f"{date_obj.strftime('%Y%m%d-%H%M%S')}s1{ext}"  
+        thumbnail_filename = f"thum_{filename}"  
+
+        # 경로 변환 (Flask 호환)
+        file_path = f"/mnt/{project_id}/{analysis_folder}/source/{filename}".replace("\\", "/")
+        thumbnail_path = f"/mnt/{project_id}/{analysis_folder}/thumbnail/{thumbnail_filename}".replace("\\", "/")
 
         return {
-            "FileName": filename,  # 저장되는 파일명 통일
-            "FilePath": file_path,  # MongoDB와 동일한 경로 사용
-            "OriginalFileName": os.path.basename(image_path),  #원본 파일명 유지 (업데이트 시 사용)
-            "ThumnailPath": thumbnail_path,  # 
+            "FileName": filename,  
+            "FilePath": file_path,
+            "OriginalFileName": os.path.basename(image_path),
+            "ThumnailPath": thumbnail_path,
             "SerialNumber": serial_number,
             "UserLabel": metadata.get("UserLabel", "UNKNOWN"),
-            "DateTimeOriginal": {
-                "$date": date_obj.isoformat(timespec='milliseconds') + 'Z'
-            },
+            "DateTimeOriginal": date_time_mongo,  # ✅ MongoDB에서 날짜 검색 가능하도록 변환
+            
             "ProjectInfo": {
-                "ProjectName": project_info['name'],
-                "ID": project_info['id']
+                "ProjectName": project_info.get("ProjectName", "Unknown"),
+                "ID": project_id  
             },
             "AnalysisFolder": analysis_folder,
             "sessionid": [session_id],
@@ -103,6 +114,9 @@ def create_exif_data(metadata: Dict, image_path: str, project_info: Dict,
     except Exception as e:
         logger.error(f"Error creating EXIF data structure: {str(e)}")
         return None
+
+
+
 
 
 def assign_evtnum_to_group(images: List[Dict], evt_num: int) -> List[Dict]:
@@ -193,7 +207,7 @@ def process_images(image_paths: List[str], project_info: Dict,
         for img in image_data_list:
             logger.info(f" DateTimeOriginal: {img['DateTimeOriginal']}")  # 디버깅 로그
 
-        grouped_images = group_images_by_time(image_data_list, project_info['id'])  # 프로젝트 ID 추가
+        grouped_images = group_images_by_time(image_data_list, project_info["id"])  # 프로젝트 ID 추가
         logger.info(f" Successfully processed {len(grouped_images)} images")
         return grouped_images
 

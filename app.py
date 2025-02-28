@@ -12,15 +12,22 @@ CORS(app,
      allow_headers=["Content-Type", "Authorization"]
 )
 
+import os
+from flask import send_file, abort
+from urllib.parse import unquote
+
 @app.route('/images/<path:filename>')
 def serve_image(filename):
-    file_path = os.path.join(app.root_path, 'mnt', filename)
-    app.logger.debug(f"Requested image path: {file_path}")
-    if os.path.exists(file_path):
-        return send_from_directory(os.path.join(app.root_path, 'mnt'), filename)
+    base_path = r"C:\Users\User\Documents\backend\mnt"
+    file_path = os.path.join(base_path, unquote(filename))
+    
+    if os.path.isfile(file_path):
+        return send_file(file_path)
     else:
         app.logger.error(f"File not found: {file_path}")
-        return "File not found", 404
+        abort(404)
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)

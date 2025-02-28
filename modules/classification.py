@@ -18,7 +18,7 @@ from .database import (
 import os
 from .utils.response import standard_response, handle_exception, pagination_meta
 from .utils.constants import PER_PAGE_DEFAULT, VALID_EXCEPTION_STATUSES, MESSAGES, VALID_INSPECTION_STATUSES
-
+import logging as logger
 classification_bp = Blueprint('classification', __name__)
 def generate_image_url(thumbnail_path):
     """
@@ -30,7 +30,7 @@ def generate_image_url(thumbnail_path):
 
     # 경로 정규화
     thumbnail_path = os.path.normpath(thumbnail_path)
-    base_path = os.path.normpath#(r"C:\Users\User\Documents\backend\mnt") # << 여기 본인 경로 추가
+    base_path = os.path.normpath(r"C:\Users\User\Documents\backend\mnt") # << 여기 본인 경로 추가
 
     if thumbnail_path.startswith(base_path):
         relative_path = thumbnail_path[len(base_path):].lstrip(os.sep)
@@ -542,46 +542,50 @@ def delete_image(image_id):
 @classification_bp.route('/inspection/normal', methods=['GET'])
 @jwt_required()
 def get_normal_inspection_images():
-    """
-    일반검수(종분류) 이미지 조회 API
-    query parameters:
-    - project_name: 프로젝트 이름
-    - start_date: 시작 날짜 (YYYY-MM-DD)
-    - end_date: 종료 날짜 (YYYY-MM-DD)
-    - serial_number: 카메라 시리얼
-    - species_name: 종 이름
-    - evtnum: 이벤트 번호 (그룹 조회용)
-    - page: 페이지 번호 (default: 1)
-    - per_page: 페이지당 이미지 수 (default: 20)
-    """
+    """일반검수(종분류) 이미지 조회 API"""
     try:
         # 쿼리 파라미터 파싱
+        project_id = request.args.get('project_id')  # 프로젝트 ID 추가
         project_name = request.args.get('project_name')
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         serial_number = request.args.get('serial_number')
         species_name = request.args.get('species_name')
-        evtnum = request.args.get('evtnum')
+        evtnum = request.args.get('evtnum')  # 이벤트 번호
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 20))
 
         # 기본 쿼리 조건 (분류된 이미지만 조회)
         query = {'is_classified': True}
 
-        # 조건 추가
+        # 프로젝트 ID 필터 추가
+        if project_id:
+            query['ProjectInfo.ID'] = project_id
+
         if project_name:
             query['ProjectInfo.ProjectName'] = project_name
+
         if start_date and end_date:
-            query['DateTimeOriginal'] = {
-                '$gte': datetime.strptime(start_date, '%Y-%m-%d'),
-                '$lte': datetime.strptime(end_date, '%Y-%m-%d')
-            }
+            try:
+                query['DateTimeOriginal'] = {
+                    '$gte': datetime.strptime(start_date, '%Y-%m-%d').isoformat() + 'Z',
+                    '$lte': datetime.strptime(end_date, '%Y-%m-%d').isoformat() + 'Z'
+                }
+            except ValueError:
+                return jsonify({"status": 400, "message": "날짜 형식이 올바르지 않습니다."}), 400
+
         if serial_number:
             query['SerialNumber'] = serial_number
+
         if species_name:
             query['BestClass'] = species_name  # 종 필터 적용
+
+        # 이벤트 번호 필터 추가 (int 변환 포함)
         if evtnum:
-            query['evtnum'] = int(evtnum)
+            try:
+                query['evtnum'] = int(evtnum)
+            except ValueError:
+                return jsonify({"status": 400, "message": "evtnum 값이 올바르지 않습니다."}), 400
 
         # 이미지 조회
         total = db.images.count_documents(query)
@@ -591,6 +595,7 @@ def get_normal_inspection_images():
             'ThumnailPath': 1,
             'DateTimeOriginal': 1,
             'ProjectInfo.ProjectName': 1,
+            'ProjectInfo.ID': 1,  # 프로젝트 ID 포함
             'SerialNumber': 1,
             'BestClass': 1,
             'evtnum': 1
@@ -604,10 +609,12 @@ def get_normal_inspection_images():
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page,
             "images": [{
+
                 "imageId": str(img['_id']),
                 "fileName": img['FileName'],
                 "imageUrl": generate_image_url(img.get('ThumnailPath')),
-                "uploadDate": img['DateTimeOriginal'],
+                "uploadDate": img.get('DateTimeOriginal', {}).get('$date', ''),
+                "projectId": img.get('ProjectInfo', {}).get('ID', ''),  # 프로젝트 ID 추가
                 "projectName": img.get('ProjectInfo', {}).get('ProjectName', ''),
                 "serialNumber": img.get('SerialNumber', ''),
                 "speciesName": img.get('BestClass', '미확인'),
@@ -617,10 +624,14 @@ def get_normal_inspection_images():
         }), 200
 
     except Exception as e:
+        logger.error(f"🚨 서버 오류 발생: {str(e)}", exc_info=True)  # ✅ 로그 남기기
         return jsonify({
             "status": 500,
-            "message": f"서버 오류: {str(e)}"
+            "message": f"서버 오류 발생: {str(e)}"
         }), 500
+
+
+
 
 @classification_bp.route('/inspection/exception', methods=['GET'])
 @jwt_required()
@@ -628,36 +639,46 @@ def get_exception_inspection_images():
     """
     예외검수(미분류) 이미지 조회 API
     query parameters:
+    - project_id: 프로젝트 ID
     - project_name: 프로젝트 이름
     - start_date: 시작 날짜 (YYYY-MM-DD)
     - end_date: 종료 날짜 (YYYY-MM-DD)
     - serial_number: 카메라 시리얼
     - exception_status: 예외 처리 상태 (pending/processed)
+    - evtnum: 이벤트 번호 (그룹 조회용)
     - page: 페이지 번호 (default: 1)
     - per_page: 페이지당 이미지 수 (default: 20)
     """
     try:
         # 쿼리 파라미터 파싱
+        project_id = request.args.get('project_id')
         project_name = request.args.get('project_name')
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         serial_number = request.args.get('serial_number')
         exception_status = request.args.get('exception_status')
+        evtnum = request.args.get('evtnum')
+
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 20))
-        evtnum = request.args.get('evtnum')
 
         # 기본 쿼리 조건 (미분류된 이미지만 조회)
         query = {'is_classified': False}
 
-        # 필터 추가
-        if project_name:
+        # 프로젝트 ID 필터 추가 
+        if project_id:
+            query['ProjectInfo.ID'] = project_id
+        elif project_name:
             query['ProjectInfo.ProjectName'] = project_name
+
+        # 날짜 필터 추가 
         if start_date and end_date:
             query['DateTimeOriginal'] = {
                 '$gte': datetime.strptime(start_date, '%Y-%m-%d'),
                 '$lte': datetime.strptime(end_date, '%Y-%m-%d')
             }
+
+        # 기타 필터 적용
         if serial_number:
             query['SerialNumber'] = serial_number
         if exception_status:
@@ -672,6 +693,7 @@ def get_exception_inspection_images():
             'FileName': 1,
             'ThumnailPath': 1,
             'DateTimeOriginal': 1,
+            'ProjectInfo.ID': 1,  # 프로젝트 ID 추가
             'ProjectInfo.ProjectName': 1,
             'SerialNumber': 1,
             'exception_status': 1,
@@ -690,10 +712,11 @@ def get_exception_inspection_images():
                 "fileName": img['FileName'],
                 "imageUrl": generate_image_url(img.get('ThumnailPath')),
                 "uploadDate": img['DateTimeOriginal'],
+                "projectId": img.get('ProjectInfo', {}).get('ID', ''),  # 프로젝트 ID 포함
                 "projectName": img.get('ProjectInfo', {}).get('ProjectName', ''),
                 "serialNumber": img.get('SerialNumber', ''),
                 "exceptionStatus": img.get('exception_status', 'pending'),
-                "evtnum": img.get('evtnum', '') 
+                "evtnum": img.get('evtnum', '')
             } for img in images]
         }), 200
 
@@ -702,6 +725,7 @@ def get_exception_inspection_images():
             "status": 500,
             "message": f"서버 오류: {str(e)}"
         }), 500
+
 
 
 @classification_bp.route('/images/bulk-delete', methods=['POST'])
