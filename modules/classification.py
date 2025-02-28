@@ -1,4 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
+import logging
+from urllib.parse import quote
 from flask_jwt_extended import jwt_required
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -18,6 +20,28 @@ from .utils.response import standard_response, handle_exception, pagination_meta
 from .utils.constants import PER_PAGE_DEFAULT, VALID_EXCEPTION_STATUSES, MESSAGES, VALID_INSPECTION_STATUSES
 
 classification_bp = Blueprint('classification', __name__)
+def generate_image_url(thumbnail_path):
+    """
+    Generate a URL for the given thumbnail path.
+    """
+    if not thumbnail_path:
+        # thumbnail_path가 None 또는 빈 문자열인 경우 기본값 반환
+        return None
+
+    # 경로 정규화
+    thumbnail_path = os.path.normpath(thumbnail_path)
+    base_path = os.path.normpath#(r"C:\Users\User\Documents\backend\mnt") # << 여기 본인 경로 추가
+
+    if thumbnail_path.startswith(base_path):
+        relative_path = thumbnail_path[len(base_path):].lstrip(os.sep)
+    else:
+        # 예상과 다른 경로 형식인 경우 로그 출력
+        logging.error(f"Unexpected thumbnail path format: {thumbnail_path}")
+        return None
+
+    # URL 인코딩 및 URL 생성
+    encoded_path = quote(relative_path.replace("\\", "/"))
+    return f"http://localhost:5000/images/{encoded_path}"
 
 def update_image(image_id, update_data, is_classified):
     """
@@ -514,27 +538,6 @@ def delete_image(image_id):
             "status": 500,
             "message": f"서버 오류: {str(e)}"
         }), 500
-        
-        
-        
-def generate_image_url(thumbnail_path):
-    """
-    Generate a URL for the given thumbnail path.
-    """
-    if not thumbnail_path:
-        # thumbnail_path가 None 또는 빈 문자열인 경우 기본값 반환
-        return None
-
-    # ./mnt/ 부분을 제거하고 나머지 경로를 사용
-    if thumbnail_path.startswith('./mnt/'):
-        relative_path = thumbnail_path[len('./mnt/'):]
-    else:
-        # 예상과 다른 경로 형식인 경우 로그 출력
-        current_app.logger.error(f"Unexpected thumbnail path format: {thumbnail_path}")
-        return None
-
-    # URL 생성
-    return f"http://localhost:5000/images/{relative_path}"
 
 @classification_bp.route('/inspection/normal', methods=['GET'])
 @jwt_required()
