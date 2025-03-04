@@ -96,12 +96,25 @@ def list_images() -> Tuple[Dict[str, Any], int]:
                      .skip((page - 1) * per_page)
                      .limit(per_page))
 
+        # 이미지 데이터 처리
+        processed_images = []
         for image in images:
+            # ObjectId를 문자열로 변환
             image['_id'] = str(image['_id'])
+            
+            # 썸네일 경로를 URL로 변환
+            if 'ThumnailPath' in image:
+                image['ThumnailPath'] = generate_image_url(image['ThumnailPath'])
+            
+            # 원본 이미지 경로를 URL로 변환
+            if 'FilePath' in image:
+                image['FilePath'] = generate_image_url(image['FilePath'])
+                
+            processed_images.append(image)
 
         return standard_response(
             "검수 완료된 이미지 목록 조회 성공",
-            data={'images': images},
+            data={'images': processed_images},
             meta=pagination_meta(total, page, per_page)
         )
 
@@ -112,9 +125,6 @@ def list_images() -> Tuple[Dict[str, Any], int]:
         )
     except Exception as e:
         return handle_exception(e, error_type="db_error")
-
-
-from bson import ObjectId
 
 @classification_bp.route('/classified-images/<image_id>', methods=['GET'])
 @jwt_required()
