@@ -19,10 +19,10 @@ def normalize_path(path):
         return ""
 
     # Windows 경로 정리
-    path = path.replace("\\", "/")  # 역슬래시를 슬래시로 변환
-    path = path.replace("C:/Users/User/Documents/backend/mnt", "/mnt")  # 경로 변환
-    path = path.replace("C:\\Users\\User\\Documents\\backend\\mnt", "/mnt")  # 경로 변환
-    path = path.replace("backend/modules/mnt", "/mnt")  # modules/mnt 잘못된 경로 제거
+    path = path.replace("\\", "/")  # ✅ 역슬래시를 슬래시로 변환
+    path = path.replace("C:/Users/User/Documents/backend/mnt", "/mnt")  # ✅ 경로 변환
+    path = path.replace("C:\\Users\\User\\Documents\\backend\\mnt", "/mnt")  # ✅ 경로 변환
+    path = path.replace("backend/modules/mnt", "/mnt")  # ✅ modules/mnt 잘못된 경로 제거
 
     return path
 
@@ -44,11 +44,7 @@ def search_normal_inspection():
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', PER_PAGE_DEFAULT))
 
-        # 🔹 `inspection_complete: False` 필터 추가
-        query = {
-            'is_classified': True,
-            'inspection_complete': False  # ✅ 검수 완료되지 않은 데이터만 조회
-        }
+        query = {'is_classified': True, 'inspection_complete': False}
 
         if project_name:
             query['ProjectInfo.ProjectName'] = {'$regex': f'^{project_name}$', '$options': 'i'}
@@ -84,34 +80,34 @@ def search_normal_inspection():
             total = total_groups[0]['total'] if total_groups else 0
 
             pipeline = [
-                {'$match': query},
-                {'$set': {
-                    'DateTimeOriginalStr': {
-                        '$ifNull': [{'$getField': {'field': 'DateTimeOriginal', 'input': '$$ROOT'}}, '0000-00-00T00:00:00Z']
-                    }
-                }},
-                {'$sort': {'DateTimeOriginal': 1}},
-                {'$group': {
-                    '_id': '$evtnum',
-                    'first_image': {'$first': '$$ROOT'},
-                    'image_count': {'$sum': 1}
-                }},
-                {'$project': {
-                    '_id': 1,
-                    'first_image': {
-                        '$ifNull': ['$first_image', {
-                            'SerialNumber': 'UNKNOWN',
-                            'ThumnailPath': '',
-                            'ProjectInfo': {'ProjectName': 'Unknown'},
-                            'DateTimeOriginalStr': '0000-00-00T00:00:00Z'
-                        }]
-                    },
-                    'image_count': 1
-                }},
-                {'$sort': {'_id': -1}},
-                {'$skip': (page - 1) * per_page},
-                {'$limit': per_page}
-            ]
+    {'$match': query},
+    {'$set': {
+        'DateTimeOriginalStr': {
+            '$ifNull': [{'$getField': {'field': 'DateTimeOriginal', 'input': '$$ROOT'}}, '0000-00-00T00:00:00Z']
+        }
+    }},
+    {'$sort': {'DateTimeOriginal': 1}},
+    {'$group': {
+        '_id': '$evtnum',
+        'first_image': {'$first': '$$ROOT'},
+        'image_count': {'$sum': 1}
+    }},
+    {'$project': {
+        '_id': 1,
+        'first_image': {
+            '$ifNull': ['$first_image', {
+                'SerialNumber': 'UNKNOWN',
+                'ThumnailPath': '',
+                'ProjectInfo': {'ProjectName': 'Unknown'},
+                'DateTimeOriginalStr': '0000-00-00T00:00:00Z'
+            }]
+        },
+        'image_count': 1
+    }},
+    {'$sort': {'_id': -1}},
+    {'$skip': (page - 1) * per_page},
+    {'$limit': per_page}
+]
 
             groups = list(db.images.aggregate(pipeline))
 
@@ -182,7 +178,7 @@ def search_exception_inspection():
         per_page = int(request.args.get('per_page', PER_PAGE_DEFAULT))
 
         # 기본 쿼리 (예외 검수)
-        query = {'is_classified': False}
+        query = {'is_classified': False, 'inspection_complete': False}
 
         if project_name:
             query['ProjectInfo.ProjectName'] = {'$regex': project_name, '$options': 'i'}
