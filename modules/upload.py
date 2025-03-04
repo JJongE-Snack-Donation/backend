@@ -45,26 +45,40 @@ def create_thumbnail(image_path: str, thumbnail_path: str) -> bool:
 def upload_files():
     """파일 업로드 API"""
     try:
+        logger.info(f" 요청 헤더: {request.headers}")  # 요청 헤더 확인
+        logger.info(f" 요청 폼 데이터: {request.form}")  # 폼 데이터 확인
+        logger.info(f" 요청 파일 목록: {request.files}")  # 실제 파일 데이터 확인
+
         if 'files' not in request.files:
+            logger.error(" 'files' 키가 요청에 없음")
             return standard_response(MESSAGES['error']['invalid_request'], status=400)
 
         files = request.files.getlist('files')
         project_info = request.form.get('project_info')
 
+        logger.info(f" 받은 파일 개수: {len(files)}, 프로젝트 정보: {project_info}")
+
         if not files or not project_info:
+            logger.error(" 파일이 없거나 프로젝트 정보가 없음")
             return standard_response(MESSAGES['error']['invalid_request'], status=400)
 
         try:
             project_info_json = json.loads(project_info)
             project_id = project_info_json.get('project_id')
+
+            logger.info(f" 프로젝트 ID: {project_id}")
+
             if not project_id:
+                logger.error(" 프로젝트 ID가 없음")
                 return standard_response("프로젝트 ID가 필요합니다", status=400)
 
             project = db.projects.find_one({'_id': ObjectId(project_id)})
             if not project:
+                logger.error(f" 프로젝트를 찾을 수 없음: {project_id}")
                 return standard_response("프로젝트를 찾을 수 없습니다", status=400)
 
         except json.JSONDecodeError:
+            logger.error(" 프로젝트 정보 JSON 디코딩 실패")
             return standard_response("잘못된 프로젝트 정보 형식입니다", status=400)
 
         uploaded_files = []
@@ -74,6 +88,7 @@ def upload_files():
         for file in files:
             if file and allowed_file(file.filename):
                 if file.content_length and file.content_length > MAX_FILE_SIZE:
+                    logger.warning(f"파일 크기 초과: {file.filename}")
                     skipped_files.append(file.filename)
                     continue
 
@@ -86,7 +101,11 @@ def upload_files():
                 os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
                 file.save(file_path)
 
+                logger.info(f"파일 저장 완료: {file_path}")
+
                 if create_thumbnail(file_path, thumbnail_path):
+                    logger.info(f"썸네일 생성 완료: {thumbnail_path}")
+
                     image_doc = {
                         'FileName': filename,
                         'FilePath': file_path,
@@ -100,6 +119,7 @@ def upload_files():
                         'uploadState': 'uploaded',
                         'AI_processed': False,
                         'exif_parsed': False,
+                        'inspection_complete': False,
                         'UploadDate': datetime.utcnow()
                     }
 
@@ -115,7 +135,10 @@ def upload_files():
                         'image_id': image_id
                     })
 
+        logger.info(f"업로드 완료: {len(uploaded_files)}개, 실패: {len(skipped_files)}개")
+
         if not uploaded_files:
+            logger.error("모든 파일 업로드 실패")
             return standard_response("파일 업로드 실패", status=400, data={"skipped_files": skipped_files})
 
         return standard_response(
@@ -128,7 +151,7 @@ def upload_files():
         )
 
     except Exception as e:
-        logger.error(f"Upload error: {str(e)}")
+        logger.error(f"Upload error: {str(e)}", exc_info=True)
         return handle_exception(e)
 
 
