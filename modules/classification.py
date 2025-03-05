@@ -19,8 +19,10 @@ import os
 from .utils.response import standard_response, handle_exception, pagination_meta
 from .utils.constants import PER_PAGE_DEFAULT, VALID_EXCEPTION_STATUSES, MESSAGES, VALID_INSPECTION_STATUSES
 import logging as logger
+import traceback
 classification_bp = Blueprint('classification', __name__)
-def generate_image_url(thumbnail_path):
+
+def generate_image_url(thumbnail_path):  # 매개변수명 수정
     """
     Generate a URL for the given thumbnail path.
     """
@@ -30,16 +32,14 @@ def generate_image_url(thumbnail_path):
 
     # 경로 정규화
     thumbnail_path = os.path.normpath(thumbnail_path)
-    base_path = os.path.normpath(r"C:\Users\User\Documents\backend\mnt") # << 여기 본인 경로 추가
+    base_path = os.path.normpath(r"C:\Users\User\Documents\backend\mnt")
 
     if thumbnail_path.startswith(base_path):
         relative_path = thumbnail_path[len(base_path):].lstrip(os.sep)
     else:
-        # 예상과 다른 경로 형식인 경우 로그 출력
         logging.error(f"Unexpected thumbnail path format: {thumbnail_path}")
         return None
 
-    # URL 인코딩 및 URL 생성
     encoded_path = quote(relative_path.replace("\\", "/"))
     return f"http://localhost:5000/images/{encoded_path}"
 
@@ -736,10 +736,10 @@ def get_exception_inspection_images():
             "total_pages": (total + per_page - 1) // per_page,
             "images": [{
                 "imageId": str(img['_id']),
-                "fileName": img['FileName'],
+                "fileName": img.get('FileName', 'No Data'),
                 "imageUrl": generate_image_url(img.get('ThumnailPath')),
-                "uploadDate": img['DateTimeOriginal'],
-                "projectId": img.get('ProjectInfo', {}).get('ID', ''),  # 프로젝트 ID 포함
+                "uploadDate": img.get('DateTimeOriginal', '0000-00-00T00:00:00Z'),
+                "projectId": img.get('ProjectInfo', {}).get('ID', ''),
                 "projectName": img.get('ProjectInfo', {}).get('ProjectName', ''),
                 "serialNumber": img.get('SerialNumber', ''),
                 "exceptionStatus": img.get('exception_status', 'pending'),
@@ -748,10 +748,9 @@ def get_exception_inspection_images():
         }), 200
 
     except Exception as e:
-        return jsonify({
-            "status": 500,
-            "message": f"서버 오류: {str(e)}"
-        }), 500
+        print("예외 발생:", str(e))
+        traceback.print_exc()
+        return handle_exception(e, error_type="db_error")
 
 
 
