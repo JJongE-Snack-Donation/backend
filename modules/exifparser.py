@@ -214,9 +214,13 @@ def group_images_by_time(image_list: List[Dict], project_id: str) -> List[Dict]:
     return result
 
 
+def batch_processing(image_paths: List[str], batch_size: int = 100) -> List[List[str]]:
+    """이미지를 batch_size 개수만큼 나누는 함수"""
+    return [image_paths[i:i + batch_size] for i in range(0, len(image_paths), batch_size)]
+
 def process_images(image_paths: List[str], project_info: Dict, 
                   analysis_folder: str, session_id: str) -> List[Dict]:
-    """이미지 목록을 처리하고 MongoDB 저장용 데이터 생성"""
+    """이미지를 100개씩 나누어 처리하고 MongoDB 저장용 데이터 생성"""
     try:
         if not image_paths:
             logger.warning("⚠ No images provided for processing")
@@ -225,33 +229,42 @@ def process_images(image_paths: List[str], project_info: Dict,
         if not validate_project_info(project_info):
             raise ValueError("Invalid project_info structure")
 
-        #  EXIF 데이터 추출
-        metadata_list = parse_exif_data_batch(image_paths)
-        if not metadata_list:
-            logger.error(" No EXIF data could be extracted from images")
-            return []
+        grouped_images = []  # 최종 결과 리스트
 
-        #  EXIF 데이터 구조화
-        image_data_list = []
-        for metadata, image_path in zip(metadata_list, image_paths):
-            logger.info(f" Processing Image: {image_path}")  # 디버깅 로그
+        # 100개씩 나누어 배치 처리
+        image_batches = batch_processing(image_paths, batch_size=100)
+        for batch_idx, image_batch in enumerate(image_batches):
+            logger.info(f"Processing batch {batch_idx + 1}/{len(image_batches)} with {len(image_batch)} images")
 
-            exif_data = create_exif_data(
-                metadata, image_path, project_info, analysis_folder, session_id
-            )
-            if not exif_data:
-                logger.error(f" Failed to create EXIF data for {image_path}")
+            #  EXIF 데이터 추출
+            metadata_list = parse_exif_data_batch(image_batch)
+            if not metadata_list:
+                logger.error(f" No EXIF data could be extracted from batch {batch_idx + 1}")
                 continue
 
-            logger.info(f" EXIF Data Created: {exif_data}")  # 디버깅 로그
-            image_data_list.append(exif_data)
+            #  EXIF 데이터 구조화
+            image_data_list = []
+            for metadata, image_path in zip(metadata_list, image_batch):
+                logger.info(f" Processing Image: {image_path}")
 
-        #  시간별 그룹화 (DateTimeOriginal 확인)
-        for img in image_data_list:
-            logger.info(f" DateTimeOriginal: {img['DateTimeOriginal']}")  # 디버깅 로그
+                exif_data = create_exif_data(
+                    metadata, image_path, project_info, analysis_folder, session_id
+                )
+                if not exif_data:
+                    logger.error(f" Failed to create EXIF data for {image_path}")
+                    continue
 
-        grouped_images = group_images_by_time(image_data_list, project_info["id"])  # 프로젝트 ID 추가
-        logger.info(f" Successfully processed {len(grouped_images)} images")
+                logger.info(f" EXIF Data Created: {exif_data}")
+                image_data_list.append(exif_data)
+
+            #  시간별 그룹화
+            for img in image_data_list:
+                logger.info(f" DateTimeOriginal: {img['DateTimeOriginal']}")
+
+            batch_grouped_images = group_images_by_time(image_data_list, project_info["id"])
+            grouped_images.extend(batch_grouped_images)  # 전체 리스트에 추가
+
+        logger.info(f" Successfully processed {len(grouped_images)} images in total")
         return grouped_images
 
     except Exception as e:
