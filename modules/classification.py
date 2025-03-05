@@ -580,7 +580,7 @@ def get_normal_inspection_images():
         species_name = request.args.get('species_name')
         evtnum = request.args.get('evtnum')  # 이벤트 번호
         page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 20))
+        per_page = int(request.args.get('per_page', 1000))
 
         # 기본 쿼리 조건 (분류된 이미지만 조회)
         query = {'is_classified': True}
@@ -687,7 +687,7 @@ def get_exception_inspection_images():
         evtnum = request.args.get('evtnum')
 
         page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 20))
+        per_page = int(request.args.get('per_page', 1000))
 
         # 기본 쿼리 조건 (미분류된 이미지만 조회)
         query = {'is_classified': False}
