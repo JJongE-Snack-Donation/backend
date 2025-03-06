@@ -583,7 +583,7 @@ def get_normal_inspection_images():
         per_page = int(request.args.get('per_page', 1000))
 
         # 기본 쿼리 조건 (분류된 이미지만 조회)
-        query = {'is_classified': True}
+        query = {'is_classified': True, 'inspection_complete': False}
 
         # 프로젝트 ID 필터 추가
         if project_id:
@@ -690,7 +690,7 @@ def get_exception_inspection_images():
         per_page = int(request.args.get('per_page', 1000))
 
         # 기본 쿼리 조건 (미분류된 이미지만 조회)
-        query = {'is_classified': False}
+        query = {'is_classified': False, 'inspection_complete': False}
 
         # 프로젝트 ID 필터 추가 
         if project_id:
