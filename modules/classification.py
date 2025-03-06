@@ -135,69 +135,75 @@ def get_classified_image_details(image_id):
         try:
             object_id = ObjectId(image_id)
         except Exception:
-            object_id = None  # 변환 실패 시 None 할당
+            object_id = None
 
-        # images 컬렉션에서 해당 이미지 찾기 + detect_images 조인
+        # images 컬렉션에서 해당 이미지 찾기
         query_filter = {"_id": object_id} if object_id else {"Image_id": image_id}
 
-        result = db.images.aggregate([
-            {"$match": query_filter},  # ObjectId 조회 또는 Image_id 조회
-            {
-                "$lookup": {
-                    "from": "detect_images",
-                    "let": { "imageId": "$_id" },  # 변환 없이 ObjectId 그대로 사용
-                    "pipeline": [
-                        { "$match": { "$expr": { "$eq": ["$Image_id", "$$imageId"] } } } 
-                    ],
-                    "as": "detection_data"
-                }
-            },
-            {"$unwind": {"path": "$detection_data", "preserveNullAndEmptyArrays": True}},  # preserveNullAndEmptyArrays=True 유지
-            {
-                "$addFields": {
-                    "BestClass": { "$ifNull": ["$detection_data.BestClass", "미확인"] },  # BestClass 기본값 설정
-                    "species": { "$ifNull": ["$detection_data.BestClass", "미확인"] }  # species를 detection_data.BestClass 기반으로 설정
-                }
-            },
-            {
-                "$project": {
-                    "_id": 1,
-                    "FileName": 1,
-                    "FilePath": 1,
-                    "ThumnailPath": 1,
-                    "DateTimeOriginal": 1,
-                    "SerialNumber": 1,
-                    "ProjectInfo": 1,
-                    "Latitude": {"$ifNull": ["$detection_data.Latitude", "$Latitude"]}, 
-                    "Longitude": {"$ifNull": ["$detection_data.Longitude", "$Longitude"]},
-                    "BestClass": 1,  # addFields에서 설정한 값
-                    "Accuracy": {"$ifNull": ["$detection_data.Accuracy", 0]},
-                    "Count": {"$ifNull": ["$detection_data.Count", 0]},
-                    "species": 1,  # addFields에서 설정한 값 사용
-                    "is_classified": 1,
-                    "classification_date": 1,
-                    "inspection_status": 1,
-                    "inspection_date": 1,
-                    "inspection_complete": 1,
-                    "exception_status": 1,
-                    "exception_comment": 1,
-                    "is_favorite": 1
-                }
-            }
-        ])
+        # ✅ 먼저 images 컬렉션에서 이미지 조회
+        image_doc = db.images.find_one(query_filter, {
+            "_id": 1,
+            "FileName": 1,
+            "FilePath": 1,
+            "ThumnailPath": 1,
+            "DateTimeOriginal": 1,
+            "SerialNumber": 1,
+            "ProjectInfo": 1,
+            "evtnum": 1,
+            "Latitude": 1,
+            "Longitude": 1,
+            "BestClass": 1,
+            "Accuracy": 1,
+            "Count": 1,
+            "is_classified": 1,
+            "classification_date": 1,
+            "inspection_status": 1,
+            "inspection_date": 1,
+            "inspection_complete": 1,
+            "exception_status": 1,
+            "exception_comment": 1,
+            "is_favorite": 1
+        })
 
-        image_data = list(result)
-        print(image_data)  # aggregate 결과 확인
-
-        if not image_data:
+        if not image_doc:
             return jsonify({'message': 'Classified image not found'}), 404
 
-        return jsonify(image_data[0]), 200
+        # ✅ 프로젝트 ID와 evtnum 필터 적용하여 관련된 detect_images 조회
+        detect_query = {
+            "ProjectInfo.ID": image_doc["ProjectInfo"]["ID"],  # 같은 프로젝트
+            "evtnum": image_doc["evtnum"],  # 같은 evtnum
+            "Image_id": image_doc["_id"]  # 현재 이미지
+        }
+
+        detection_data = db.detect_images.find_one(detect_query, {
+            "BestClass": 1,
+            "Latitude": 1,
+            "Longitude": 1,
+            "Accuracy": 1,
+            "Count": 1
+        })
+
+        # ✅ 기존 이미지 데이터에 detection_data 추가
+        if detection_data:
+            image_doc["BestClass"] = detection_data.get("BestClass", "미확인")
+            image_doc["species"] = detection_data.get("BestClass", "미확인")
+            image_doc["Latitude"] = detection_data.get("Latitude", image_doc.get("Latitude"))
+            image_doc["Longitude"] = detection_data.get("Longitude", image_doc.get("Longitude"))
+            image_doc["Accuracy"] = detection_data.get("Accuracy", image_doc.get("Accuracy", 0))
+            image_doc["Count"] = detection_data.get("Count", image_doc.get("Count", 0))
+        else:
+            image_doc["BestClass"] = "미확인"
+            image_doc["species"] = "미확인"
+            image_doc["Accuracy"] = 0
+            image_doc["Count"] = 0
+
+        # ObjectId를 문자열로 변환
+        image_doc["_id"] = str(image_doc["_id"])
+
+        return jsonify(image_doc), 200
 
     except Exception as e:
         return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
-
-
 
 @classification_bp.route('/unclassified-images/<image_id>', methods=['GET'])
 @jwt_required()
@@ -572,42 +578,19 @@ def get_normal_inspection_images():
     """일반검수(종분류) 이미지 조회 API"""
     try:
         # 쿼리 파라미터 파싱
-        project_id = request.args.get('project_id')  # 프로젝트 ID 추가
-        project_name = request.args.get('project_name')
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        serial_number = request.args.get('serial_number')
-        species_name = request.args.get('species_name')
-        evtnum = request.args.get('evtnum')  # 이벤트 번호
+        project_id = request.args.get('project_id')
+        evtnum = request.args.get('evtnum')
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 1000))
 
         # 기본 쿼리 조건 (분류된 이미지만 조회)
         query = {'is_classified': True, 'inspection_complete': False}
 
-        # 프로젝트 ID 필터 추가
+        # 프로젝트 ID 필터 적용
         if project_id:
-            query['ProjectInfo.ID'] = project_id
+            query['ProjectInfo.ID'] = project_id  
 
-        if project_name:
-            query['ProjectInfo.ProjectName'] = project_name
-
-        if start_date and end_date:
-            try:
-                query['DateTimeOriginal'] = {
-                    '$gte': datetime.strptime(start_date, '%Y-%m-%d').isoformat() + 'Z',
-                    '$lte': datetime.strptime(end_date, '%Y-%m-%d').isoformat() + 'Z'
-                }
-            except ValueError:
-                return jsonify({"status": 400, "message": "날짜 형식이 올바르지 않습니다."}), 400
-
-        if serial_number:
-            query['SerialNumber'] = serial_number
-
-        if species_name:
-            query['BestClass'] = species_name  # 종 필터 적용
-
-        # 이벤트 번호 필터 추가 (int 변환 포함)
+        # 이벤트 번호 필터 추가 (같은 프로젝트 내에서만 조회)
         if evtnum:
             try:
                 query['evtnum'] = int(evtnum)
@@ -616,17 +599,7 @@ def get_normal_inspection_images():
 
         # 이미지 조회
         total = db.images.count_documents(query)
-        images = list(db.images.find(query, {
-            '_id': 1,
-            'FileName': 1,
-            'ThumnailPath': 1,
-            'DateTimeOriginal': 1,
-            'ProjectInfo.ProjectName': 1,
-            'ProjectInfo.ID': 1,  # 프로젝트 ID 포함
-            'SerialNumber': 1,
-            'BestClass': 1,
-            'evtnum': 1
-        }).skip((page - 1) * per_page).limit(per_page))
+        images = list(db.images.find(query).skip((page - 1) * per_page).limit(per_page))
 
         return jsonify({
             "status": 200,
@@ -636,12 +609,11 @@ def get_normal_inspection_images():
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page,
             "images": [{
-
                 "imageId": str(img['_id']),
-                "fileName": img['FileName'],
+                "fileName": img.get('FileName', ''),
                 "imageUrl": generate_image_url(img.get('ThumnailPath')),
                 "uploadDate": img.get('DateTimeOriginal', {}).get('$date', ''),
-                "projectId": img.get('ProjectInfo', {}).get('ID', ''),  # 프로젝트 ID 추가
+                "projectId": img.get('ProjectInfo', {}).get('ID', ''),
                 "projectName": img.get('ProjectInfo', {}).get('ProjectName', ''),
                 "serialNumber": img.get('SerialNumber', ''),
                 "speciesName": img.get('BestClass', '미확인'),
@@ -651,30 +623,17 @@ def get_normal_inspection_images():
         }), 200
 
     except Exception as e:
-        logger.error(f"🚨 서버 오류 발생: {str(e)}", exc_info=True)  # ✅ 로그 남기기
+        logger.error(f"🚨 서버 오류 발생: {str(e)}", exc_info=True)
         return jsonify({
             "status": 500,
             "message": f"서버 오류 발생: {str(e)}"
         }), 500
-
-
-
 
 @classification_bp.route('/inspection/exception', methods=['GET'])
 @jwt_required()
 def get_exception_inspection_images():
     """
     예외검수(미분류) 이미지 조회 API
-    query parameters:
-    - project_id: 프로젝트 ID
-    - project_name: 프로젝트 이름
-    - start_date: 시작 날짜 (YYYY-MM-DD)
-    - end_date: 종료 날짜 (YYYY-MM-DD)
-    - serial_number: 카메라 시리얼
-    - exception_status: 예외 처리 상태 (pending/processed)
-    - evtnum: 이벤트 번호 (그룹 조회용)
-    - page: 페이지 번호 (default: 1)
-    - per_page: 페이지당 이미지 수 (default: 20)
     """
     try:
         # 쿼리 파라미터 파싱
@@ -692,13 +651,13 @@ def get_exception_inspection_images():
         # 기본 쿼리 조건 (미분류된 이미지만 조회)
         query = {'is_classified': False, 'inspection_complete': False}
 
-        # 프로젝트 ID 필터 추가 
+        # 프로젝트 ID 필터 추가
         if project_id:
             query['ProjectInfo.ID'] = project_id
         elif project_name:
             query['ProjectInfo.ProjectName'] = project_name
 
-        # 날짜 필터 추가 
+        # 날짜 필터 추가
         if start_date and end_date:
             query['DateTimeOriginal'] = {
                 '$gte': datetime.strptime(start_date, '%Y-%m-%d'),
@@ -710,8 +669,12 @@ def get_exception_inspection_images():
             query['SerialNumber'] = serial_number
         if exception_status:
             query['exception_status'] = exception_status  # 예외 상태 필터 적용
+        
+        # 이벤트 번호 필터 (프로젝트 ID와 함께 조회)
         if evtnum:
             query['evtnum'] = int(evtnum)
+            if project_id:
+                query['ProjectInfo.ID'] = project_id
 
         # 이미지 조회
         total = db.images.count_documents(query)
@@ -720,7 +683,7 @@ def get_exception_inspection_images():
             'FileName': 1,
             'ThumnailPath': 1,
             'DateTimeOriginal': 1,
-            'ProjectInfo.ID': 1,  # 프로젝트 ID 추가
+            'ProjectInfo.ID': 1,
             'ProjectInfo.ProjectName': 1,
             'SerialNumber': 1,
             'exception_status': 1,
@@ -751,8 +714,6 @@ def get_exception_inspection_images():
         print("예외 발생:", str(e))
         traceback.print_exc()
         return handle_exception(e, error_type="db_error")
-
-
 
 @classification_bp.route('/images/bulk-delete', methods=['POST'])
 @jwt_required()

@@ -61,8 +61,11 @@ def search_normal_inspection():
         if evtnum:
             try:
                 query['evtnum'] = int(evtnum)
+                if project_id:  # 프로젝트 ID도 함께 필터링해야 함
+                    query['ProjectInfo.ID'] = project_id
             except ValueError:
-                return standard_response("evtnum 값이 올바르지 않습니다.", status=400)
+                return jsonify({"status": 400, "message": "evtnum 값이 올바르지 않습니다."}), 400
+
 
         if date:
             try:
@@ -76,7 +79,7 @@ def search_normal_inspection():
         if group_by == "evtnum":
             count_pipeline = [
                 {'$match': query},
-                {'$group': {'_id': '$evtnum'}},
+                {'$group': {'_id': {'evtnum': '$evtnum', 'project_id': '$ProjectInfo.ID'}}},  
                 {'$count': 'total'}
             ]
             total_groups = list(db.images.aggregate(count_pipeline))
@@ -84,28 +87,19 @@ def search_normal_inspection():
 
             pipeline = [
                 {'$match': query},
-                {'$set': {  # $getField 제거
+                {'$set': {
                     'DateTimeOriginalStr': {'$ifNull': ['$DateTimeOriginal', '0000-00-00T00:00:00Z']}
                 }},
                 {'$sort': {'DateTimeOriginal': 1}},
                 {'$group': {
-                    '_id': '$evtnum',
+                    '_id': {
+                        'evtnum': '$evtnum',
+                        'project_id': '$ProjectInfo.ID'  
+                    },
                     'first_image': {'$first': '$$ROOT'},
                     'image_count': {'$sum': 1}
                 }},
-                {'$project': {
-                    '_id': 1,
-                    'first_image': {
-                        '$ifNull': ['$first_image', {
-                            'SerialNumber': 'UNKNOWN',
-                            'ThumnailPath': '',
-                            'ProjectInfo': {'ProjectName': 'Unknown'},
-                            'DateTimeOriginalStr': '0000-00-00T00:00:00Z'
-                        }]
-                    },
-                    'image_count': 1
-                }},
-                {'$sort': {'_id': -1}},
+                {'$sort': {'_id.evtnum': -1}},
                 {'$skip': (page - 1) * per_page},
                 {'$limit': per_page}
             ]
@@ -119,16 +113,28 @@ def search_normal_inspection():
                 "page": page,
                 "per_page": per_page,
                 "groups": [{
-                    "evtnum": group['_id'],
-                    "serialNumber": group['first_image'].get('SerialNumber','UNKNOWN'),
+                    "evtnum": group['_id']['evtnum'],
+                    "projectId": group['_id']['project_id'],
+                    "serialNumber": group['first_image'].get('SerialNumber', 'UNKNOWN'),
                     "imageCount": group['image_count'],
-                    "ThumnailPath": normalize_path(group['first_image'].get('ThumnailPath', '')),  
+                    "ThumnailPath": normalize_path(group['first_image'].get('ThumnailPath', '')),
                     "projectName": group['first_image'].get('ProjectInfo', {}).get('ProjectName', ''),
-                    "DateTimeOriginal": group['first_image']['DateTimeOriginalStr']
+                    "DateTimeOriginal": group['first_image']['DateTimeOriginalStr'],
+                    "query_params": {
+                        "evtnum": group['_id']['evtnum'],
+                        "project_id": group['_id']['project_id']
+                    }
                 } for group in groups]
             }), 200
 
-        # 일반 검색
+        # 일반 검색 (상세 조회)
+        if evtnum:
+            # project_id와 evtnum 모두로 필터링
+            if not project_id:
+                return standard_response("evtnum 검색 시 project_id가 필요합니다.", status=400)
+            query['ProjectInfo.ID'] = project_id
+            query['evtnum'] = int(evtnum)
+
         total = db.images.count_documents(query)
         images = list(db.images.find(query)
                       .skip((page - 1) * per_page)
@@ -147,7 +153,8 @@ def search_normal_inspection():
                 "date": img.get('DateTimeOriginal', {}).get('$date', '0000-00-00T00:00:00Z'),
                 "serial_number": img.get('SerialNumber', ''),
                 "project_name": img.get('ProjectInfo', {}).get('ProjectName', ''),
-                "project_id": img.get('ProjectInfo', {}).get('ID', '')
+                "project_id": img.get('ProjectInfo', {}).get('ID', ''),
+                "evtnum": img.get('evtnum')
             } for img in images]
         }), 200
 
@@ -173,6 +180,7 @@ def search_exception_inspection():
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', PER_PAGE_DEFAULT))
 
+        # 기본 검색 조건 (미분류된 이미지만 조회)
         query = {'is_classified': False, 'inspection_complete': False}
 
         if project_id:
@@ -187,7 +195,12 @@ def search_exception_inspection():
             query['exception_status'] = exception_status
 
         if evtnum:
-            query['evtnum'] = int(evtnum)
+            try:
+                query['evtnum'] = int(evtnum)
+                if project_id:  # 프로젝트 ID도 함께 필터링 (중복 방지)
+                    query['ProjectInfo.ID'] = project_id
+            except ValueError:
+                return jsonify({"status": 400, "message": "evtnum 값이 올바르지 않습니다."}), 400
 
         if date:
             try:
@@ -197,31 +210,23 @@ def search_exception_inspection():
             except ValueError:
                 return standard_response("날짜 형식이 잘못되었습니다.", status=400)
 
+        # ✅ 그룹 조회: 같은 프로젝트 내에서 같은 evtnum을 가진 이미지만 그룹화
         if group_by == "evtnum":
             pipeline = [
                 {'$match': query},
-                {'$set': {  # $getField 제거
+                {'$set': {
                     'DateTimeOriginalStr': {'$ifNull': ['$DateTimeOriginal', '0000-00-00T00:00:00Z']}
                 }},
                 {'$sort': {'DateTimeOriginal': 1}},
                 {'$group': {
-                    '_id': '$evtnum',
+                    '_id': {
+                        'evtnum': '$evtnum',
+                        'project_id': '$ProjectInfo.ID'  # ✅ 프로젝트 ID 기준으로 그룹화
+                    },
                     'first_image': {'$first': '$$ROOT'},
                     'image_count': {'$sum': 1}
                 }},
-                {'$project': {
-                    '_id': 1,
-                    'first_image': {
-                        '$ifNull': ['$first_image', {
-                            'SerialNumber': 'UNKNOWN',
-                            'ThumnailPath': '',
-                            'ProjectInfo': {'ProjectName': 'Unknown'},
-                            'DateTimeOriginalStr': '0000-00-00T00:00:00Z'
-                        }]
-                    },
-                    'image_count': 1
-                }},
-                {'$sort': {'_id': -1}},
+                {'$sort': {'_id.evtnum': -1}},
                 {'$skip': (page - 1) * per_page},
                 {'$limit': per_page}
             ]
@@ -234,17 +239,18 @@ def search_exception_inspection():
                 "page": page,
                 "per_page": per_page,
                 "groups": [{
-                    "evtnum": group['_id'],
-                    "serialNumber": group['first_image'].get('SerialNumber', 'UNKNOWN'),  # 소괄호(`()`) 사용해야 함!
+                    "evtnum": group['_id']['evtnum'],
+                    "projectId": group['_id']['project_id'],  
+                    "serialNumber": group['first_image'].get('SerialNumber', 'UNKNOWN'),
                     "imageCount": group['image_count'],
                     "ThumnailPath": normalize_path(group['first_image'].get('ThumnailPath', '')),
                     "projectName": group['first_image'].get('ProjectInfo', {}).get('ProjectName', ''),
-                    "DateTimeOriginal": group['first_image'].get('DateTimeOriginal','0000-00-00T00:00:00Z'),
+                    "DateTimeOriginal": group['first_image'].get('DateTimeOriginalStr', '0000-00-00T00:00:00Z'),
                     "exceptionStatus": group['first_image'].get('exception_status', 'pending')
                 } for group in groups]
             }), 200
 
-        # 일반 검색 모드
+        # ✅ 일반 검색 모드 (단일 이미지 리스트 조회)
         total = db.images.count_documents(query)
         images = list(db.images.find(query)
                       .skip((page - 1) * per_page)
@@ -259,7 +265,7 @@ def search_exception_inspection():
             "images": [{
                 "id": str(img['_id']),
                 "filename": img['FileName'],
-                "thumbnail": img['ThumnailPath'],
+                "thumbnail": normalize_path(img['ThumnailPath']),
                 "date": img.get('DateTimeOriginal', {}).get('$date', '0000-00-00T00:00:00Z'),
                 "serial_number": img.get('SerialNumber', ''),
                 "project_name": img.get('ProjectInfo', {}).get('ProjectName', ''),
@@ -277,6 +283,7 @@ def search_exception_inspection():
         print("예외 발생:", str(e))
         traceback.print_exc()
         return handle_exception(e, error_type="db_error")
+
 
 @search_bp.route('/images/search', methods=['GET'])
 @jwt_required()
@@ -325,7 +332,7 @@ def search_inspection_images():
             pipeline = [
                 {'$match': query},
                 {'$group': {
-                    '_id': {'evtnum': '$evtnum'},
+                    '_id': {'evtnum': '$evtnum', 'project_id': '$ProjectInfo.ID'}, 
                     'first_image': {'$first': '$$ROOT'},
                     'image_count': {'$sum': 1},
                     'DateTimeOriginal': {'$first': '$DateTimeOriginal'}
@@ -335,7 +342,7 @@ def search_inspection_images():
                     'first_image': 1,
                     'image_count': 1,
                     'DateTimeOriginalStr': {
-                        '$ifNull': ['$DateTimeOriginal', '0000-00-00T00:00:00Z']  # $project에서만 사용
+                        '$ifNull': ['$DateTimeOriginal', '0000-00-00T00:00:00Z']
                     }
                 }},
                 {'$sort': {'DateTimeOriginalStr': -1}},
@@ -353,6 +360,7 @@ def search_inspection_images():
                 "per_page": per_page,
                 "groups": [{
                     "evtnum": group['_id']['evtnum'],
+                    "projectId": group['_id']['project_id'], 
                     "serialNumber": group['first_image'].get('SerialNumber', 'UNKNOWN'),
                     "imageCount": group['image_count'],
                     "ThumnailPath": normalize_path(group['first_image'].get('ThumnailPath', '')),
@@ -360,6 +368,7 @@ def search_inspection_images():
                     "DateTimeOriginal": group['DateTimeOriginalStr']
                 } for group in groups]
             }), 200
+
 
         # 일반 검색 모드
         total = db.images.count_documents(query)
