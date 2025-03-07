@@ -77,53 +77,51 @@ def search_normal_inspection():
 
         # 그룹 조회 (group_by=evtnum)
         if group_by == "evtnum":
-            count_pipeline = [
-                {'$match': query},
-                {'$group': {'_id': {'evtnum': '$evtnum', 'project_id': '$ProjectInfo.ID'}}},  
-                {'$count': 'total'}
-            ]
-            total_groups = list(db.images.aggregate(count_pipeline))
-            total = total_groups[0]['total'] if total_groups and 'total' in total_groups[0] else 0
-
             pipeline = [
                 {'$match': query},
-                {'$set': {
-                    'DateTimeOriginalStr': {'$ifNull': ['$DateTimeOriginal', '0000-00-00T00:00:00Z']}
-                }},
-                {'$sort': {'DateTimeOriginal': 1}},
                 {'$group': {
                     '_id': {
                         'evtnum': '$evtnum',
-                        'project_id': '$ProjectInfo.ID'  
+                        'project_id': '$ProjectInfo.ID'
                     },
                     'first_image': {'$first': '$$ROOT'},
-                    'image_count': {'$sum': 1}
+                    'count': {'$sum': 1}
                 }},
-                {'$sort': {'_id.evtnum': -1}},
+                {'$sort': {'first_image.DateTimeOriginal': -1}},
                 {'$skip': (page - 1) * per_page},
                 {'$limit': per_page}
             ]
 
+            count_pipeline = [
+                {'$match': query},
+                {'$group': {
+                    '_id': {
+                        'evtnum': '$evtnum',
+                        'project_id': '$ProjectInfo.ID'
+                    }
+                }},
+                {'$count': 'total'}
+            ]
+
             groups = list(db.images.aggregate(pipeline))
+            count_result = list(db.images.aggregate(count_pipeline))
+            total = count_result[0]['total'] if count_result else 0
 
             return jsonify({
                 "status": 200,
-                "message": "그룹 목록 조회 성공",
+                "message": "검수 완료된 그룹 목록 조회 성공",
                 "total": total,
                 "page": page,
                 "per_page": per_page,
+                "total_pages": (total + per_page - 1) // per_page,
                 "groups": [{
                     "evtnum": group['_id']['evtnum'],
                     "projectId": group['_id']['project_id'],
                     "serialNumber": group['first_image'].get('SerialNumber', 'UNKNOWN'),
-                    "imageCount": group['image_count'],
+                    "imageCount": group['count'],
                     "ThumnailPath": normalize_path(group['first_image'].get('ThumnailPath', '')),
                     "projectName": group['first_image'].get('ProjectInfo', {}).get('ProjectName', ''),
-                    "DateTimeOriginal": group['first_image']['DateTimeOriginalStr'],
-                    "query_params": {
-                        "evtnum": group['_id']['evtnum'],
-                        "project_id": group['_id']['project_id']
-                    }
+                    "DateTimeOriginal": group['first_image'].get('DateTimeOriginal', {}).get('$date', '')
                 } for group in groups]
             }), 200
 
@@ -169,6 +167,7 @@ def search_normal_inspection():
 def search_exception_inspection():
     """예외 검수 이미지 검색 및 그룹 조회 API"""
     try:
+        print("예외검수 이미지 검색 및 그룹 조회 /inspection/exception/search 호출")
         project_id = request.args.get('project_id')
         project_name = request.args.get('project_name')
         date = request.args.get('date')

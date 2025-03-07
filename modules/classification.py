@@ -129,37 +129,48 @@ def list_images() -> Tuple[Dict[str, Any], int]:
 @classification_bp.route('/classified-images/<image_id>', methods=['GET'])
 @jwt_required()
 def get_classified_image_details(image_id):
-    """일반검수 이미지 상세 정보 조회 API"""
     try:
         logger.info(f"\n=== 이미지 상세 정보 조회 시작: {image_id} ===")
-        
+
+        # 1️⃣ 현재 요청된 이미지 정보를 가져옴
         try:
             object_id = ObjectId(image_id)
-            logger.info(f"ObjectId 변환 성공: {object_id}")
         except Exception as e:
             logger.error(f"ObjectId 변환 실패: {str(e)}")
-            object_id = None
+            return jsonify({'message': 'Invalid image ID'}), 400
 
-        query_filter = {"_id": object_id} if object_id else {"Image_id": image_id}
-        logger.info(f"images 컬렉션 검색 필터: {query_filter}")
-
-        # ✅ images 컬렉션에서 모든 필드 조회
-        image_doc = db.images.find_one(query_filter)
+        image_doc = db.images.find_one({"_id": object_id})
 
         if not image_doc:
             logger.warning(f"이미지를 찾을 수 없음: {image_id}")
             return jsonify({'message': 'Classified image not found'}), 404
 
-        logger.info(f"\n=== images 컬렉션 조회 결과 ===")
-        logger.info(f"파일명: {image_doc.get('FileName')}")
-        logger.info(f"프로젝트: {image_doc.get('ProjectInfo', {}).get('ProjectName')}")
-        logger.info(f"촬영 날짜: {image_doc.get('DateTimeOriginal')}")
-        logger.info(f"등록 날짜: {image_doc.get('UploadDate')}")
+        # 2️⃣ 프로젝트 ID 및 evtnum 정보 가져오기
+        project_id = image_doc.get("ProjectInfo", {}).get("ID")
+        evtnum = image_doc.get("evtnum")
 
-        # ✅ detect_images 컬렉션에서 최신 데이터 조회
-        detect_query = {
-            "Image_id": image_doc["_id"]
+        if not project_id:
+            logger.warning(f"이미지 {image_id}에 프로젝트 정보가 없습니다.")
+            return jsonify({'message': 'Project ID is missing'}), 400
+
+        try:
+            evtnum = int(evtnum)
+        except ValueError:
+            logger.error(f"evtnum 값 변환 오류: {evtnum}")
+            return jsonify({'message': 'Invalid evtnum format'}), 400
+
+        logger.info(f"요청된 이미지 프로젝트 ID: {project_id}, evtnum: {evtnum}")
+
+        # 3️⃣ 같은 프로젝트 내에서 같은 evtnum을 가진 이미지 가져오기
+        query_filter = {
+            "evtnum": evtnum,
+            "ProjectInfo.ID": project_id
         }
+
+        related_images = list(db.images.find(query_filter))
+
+        # 4️⃣ detect_images에서 종명, 개체수, 정확도 가져오기
+        detect_query = {"Image_id": image_doc["_id"]}
         logger.info(f"\n=== detect_images 검색 시작 ===")
         logger.info(f"검색 조건: {detect_query}")
 
@@ -168,101 +179,54 @@ def get_classified_image_details(image_id):
             sort=[("UpdatedAt", -1)]
         )
 
-        # 기본 응답 데이터 구성
+        # 5️⃣ 기존 응답 구조 유지 + 개선된 필드 적용
         response_data = {
-            # 기본 정보
             "_id": str(image_doc["_id"]),
             "FileName": image_doc.get("FileName", ""),
-            "fileExtension": os.path.splitext(image_doc.get("FileName", ""))[1],
             "FilePath": image_doc.get("FilePath", ""),
-            "OriginalFileName": image_doc.get("OriginalFileName", ""),
             "ThumnailPath": image_doc.get("ThumnailPath", ""),
-            
-            # 프로젝트 정보
             "ProjectInfo": image_doc.get("ProjectInfo", {}),
-            "AnalysisFolder": image_doc.get("AnalysisFolder", ""),
-            "uploadState": image_doc.get("uploadState", ""),
-            
-            # 시간 정보
             "DateTimeOriginal": image_doc.get("DateTimeOriginal", {}),
             "UploadDate": image_doc.get("UploadDate", ""),
-            "exif_parsed_at": image_doc.get("exif_parsed_at", ""),
-            
-            # 위치 정보
             "Latitude": image_doc.get("Latitude", "No Data"),
             "Longitude": image_doc.get("Longitude", "No Data"),
-            
-            # 카메라 정보
             "SerialNumber": image_doc.get("SerialNumber", "UNKNOWN"),
-            "serial_filename": image_doc.get("serial_filename", ""),
-            
-            # 이벤트 정보
             "evtnum": image_doc.get("evtnum", ""),
-            
-            # 상태 정보
             "AI_processed": image_doc.get("AI_processed", False),
-            "exif_parsed": image_doc.get("exif_parsed", False),
             "is_classified": image_doc.get("is_classified", False),
-            "classification_date": image_doc.get("classification_date", ""),
-            
-            # 검수 관련 정보
             "inspection_status": image_doc.get("inspection_status", ""),
-            "inspection_date": image_doc.get("inspection_date", ""),
             "inspection_complete": image_doc.get("inspection_complete", False),
             "exception_status": image_doc.get("exception_status", ""),
             "exception_comment": image_doc.get("exception_comment", ""),
-            "is_favorite": image_doc.get("is_favorite", False)
-        }
+            "is_favorite": image_doc.get("is_favorite", False),
 
-        # detect_images 데이터 추가
-        if detection_data:
-            logger.info(f"\n=== detect_images 데이터 찾음 ===")
-            logger.info(f"종명: {detection_data.get('BestClass')}")
-            logger.info(f"개체수: {detection_data.get('Count')}")
-            logger.info(f"정확도: {detection_data.get('Accuracy')}")
-            
-            # detection_image 필드 처리
-            detection_image = detection_data.get("detection_image")
-            if detection_image and isinstance(detection_image, bytes):
-                try:
-                    import base64
-                    detection_image = base64.b64encode(detection_image).decode('utf-8')
-                except Exception as e:
-                    logger.error(f"detection_image 인코딩 실패: {str(e)}")
-                    detection_image = None
-            
-            response_data.update({
-                "BestClass": detection_data.get("BestClass", "미확인"),
-                "species": detection_data.get("BestClass", "미확인"),
-                "Count": detection_data.get("Count", "No Data"),
-                "Accuracy": detection_data.get("Accuracy", "No Data"),
-                "UpdatedAt": detection_data.get("UpdatedAt"),
-                "Infos": detection_data.get("Infos", []),
-                "bbox": detection_data.get("bbox", []),
-                "new_bbox": detection_data.get("new_bbox", []),
-                "detection_image": detection_image  # Base64로 인코딩된 이미지 또는 None
-            })
-        else:
-            logger.warning("detect_images 데이터 없음")
-            response_data.update({
-                "BestClass": "미확인",
-                "species": "미확인",
-                "Count": "No Data",
-                "Accuracy": "No Data",
-                "Infos": [],
-                "bbox": [],
-                "new_bbox": [],
-                "detection_image": None
-            })
+            # 🔹 `bbox` & `new_bbox`를 `detect_images`에서 가져옴
+            "bbox": detection_data.get("bbox", []) if detection_data else [],
+            "new_bbox": detection_data.get("new_bbox", []) if detection_data else [],
+
+            # 🔹 `speciesName`을 `BestClass`와 동일하게 설정
+            "speciesName": detection_data.get("BestClass", "미확인"),
+
+            # 🔹 같은 프로젝트 내 evtnum이 동일한 이미지 리스트 반환
+            "related_images": [
+                {
+                    "id": str(img["_id"]),
+                    "FileName": img.get("FileName", ""),
+                    "ThumnailPath": img.get("ThumnailPath", ""),
+                    "ProjectInfo": img.get("ProjectInfo", {}),
+                    "evtnum": img.get("evtnum", "")
+                }
+                for img in related_images
+            ]
+        }
 
         logger.info("\n=== 이미지 상세 정보 조회 완료 ===")
         return jsonify(response_data), 200
 
     except Exception as e:
         logger.error(f"\n=== 오류 발생 ===")
-        logger.error(f"이미지 상세 정보 조회 중 오류: {str(e)}")
-        logger.error("스택 트레이스:", exc_info=True)
-        return jsonify({'message': 'Invalid image ID format or other error', 'error': str(e)}), 400
+        logger.error(f"이미지 상세 정보 조회 중 오류: {str(e)}", exc_info=True)
+        return jsonify({'message': 'Error fetching image details', 'error': str(e)}), 500
 
 @classification_bp.route('/unclassified-images/<image_id>', methods=['GET'])
 @jwt_required()
@@ -771,96 +735,110 @@ def delete_image(image_id):
 @classification_bp.route('/inspection/normal', methods=['GET'])
 @jwt_required()
 def get_normal_inspection_images():
-    """일반검수(종분류) 이미지 조회 API"""
     try:
-        logger.info("\n=== 일반검수 이미지 목록 조회 시작 ===")
+        logger.info("=== 일반검수 이미지 목록 조회 시작 ===")
         
-        # 쿼리 파라미터 파싱
         project_id = request.args.get('project_id')
         evtnum = request.args.get('evtnum')
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 1000))
-        
-        logger.info(f"요청 파라미터:")
-        logger.info(f"- project_id: {project_id}")
-        logger.info(f"- evtnum: {evtnum}")
-        logger.info(f"- page: {page}")
-        logger.info(f"- per_page: {per_page}")
+
+        logger.info(f"요청 파라미터: project_id={project_id}, evtnum={evtnum}")
 
         # 기본 쿼리 조건
-        query = {'is_classified': True, 'inspection_complete': False}
+        query = {
+            'is_classified': True, 
+            'inspection_complete': False
+        }
 
-        if project_id:
-            query['ProjectInfo.ID'] = project_id  
+        # ✅ evtnum이 있는 경우, project_id가 없어도 전체에서 검색 가능하도록 허용
         if evtnum:
             try:
-                query['evtnum'] = int(evtnum)
+                evtnum_int = int(evtnum)
+                query['evtnum'] = evtnum_int
+
+                if project_id:  # 특정 프로젝트 내 evtnum 검색
+                    query['ProjectInfo.ID'] = project_id
+                    logger.info(f"프로젝트 {project_id}의 이벤트 {evtnum} 조회")
+                else:
+                    logger.info(f"⚠️ 전체 프로젝트에서 이벤트 {evtnum} 조회")
+                    
             except ValueError:
-                logger.error(f"잘못된 evtnum 값: {evtnum}")
                 return jsonify({"status": 400, "message": "evtnum 값이 올바르지 않습니다."}), 400
 
-        logger.info(f"\n=== MongoDB 쿼리 정보 ===")
-        logger.info(f"검색 조건: {query}")
+        elif project_id:  # 프로젝트 ID만 있을 때
+            query['ProjectInfo.ID'] = project_id
+            logger.info(f"프로젝트 {project_id}의 모든 이미지 조회")
 
-        # 이미지 조회
+        logger.info(f"최종 검색 조건: {query}")
+
+        # ✅ evtnum과 project_id를 함께 그룹핑하여, 프로젝트가 다른 경우 evtnum이 같아도 다른 그룹이 되도록 함
+        pipeline = [
+            {"$match": query},
+            {"$sort": {"evtnum": 1, "FileName": 1}},  # evtnum으로 먼저 정렬하고, 같은 evtnum 내에서는 파일명으로 정렬
+            {"$group": {
+                "_id": {"evtnum": "$evtnum", "project_id": "$ProjectInfo.ID"},  # ✅ 프로젝트 ID도 포함하여 그룹화
+                "images": {"$push": "$$ROOT"},  # 각 그룹의 모든 문서 저장
+                "count": {"$sum": 1}  # 각 그룹의 이미지 수 계산
+            }},
+            {"$sort": {"_id.evtnum": 1}},  # 그룹(evtnum)을 오름차순으로 정렬
+            {"$skip": (page - 1) * per_page},
+            {"$limit": per_page}
+        ]
+
+        # Aggregation 실행
+        grouped_results = list(db.images.aggregate(pipeline))
+        
+        # 전체 문서 수 계산
         total = db.images.count_documents(query)
-        logger.info(f"총 문서 수: {total}")
         
-        images = list(db.images.find(query).skip((page - 1) * per_page).limit(per_page))
-        logger.info(f"조회된 이미지 수: {len(images)}")
-
-        # 결과 이미지 목록
+        # 결과 포맷팅
         result_images = []
-        
-        logger.info(f"\n=== 이미지 상세 정보 처리 시작 ===")
-        for idx, img in enumerate(images, 1):
-            logger.info(f"\n[이미지 {idx}/{len(images)}] 처리 중")
-            logger.info(f"- 이미지 ID: {str(img['_id'])}")
-            logger.info(f"- 파일명: {img.get('FileName')}")
-            logger.info(f"- 프로젝트 정보: {img.get('ProjectInfo')}")
-            logger.info(f"- 현재 BestClass: {img.get('BestClass')}")
+        for group in grouped_results:
+            for img in group['images']:
+                # ✅ detect_images에서 해당 이미지의 종 정보를 가져옴
+                detect_query = {"Image_id": img["_id"]}
+                detection_data = db.detect_images.find_one(
+                    detect_query,
+                    sort=[("UpdatedAt", -1)]  # 최신 데이터 가져오기
+                )
 
-            # detect_images 컬렉션 조회
-            detect_query = {"Image_id": img['_id']}
-            logger.info(f"detect_images 검색 조건: {detect_query}")
+                species_name = "미확인"
+                bbox_data = []
+                new_bbox_data = []
 
-            detect_data = db.detect_images.find_one(
-                detect_query,
-                sort=[("UpdatedAt", -1)]
-            )
+                if detection_data:
+                    species_name = detection_data.get("BestClass", "미확인")
 
-            if detect_data:
-                logger.info(f"detect_images 데이터 찾음:")
-                logger.info(f"- _id: {str(detect_data['_id'])}")
-                logger.info(f"- BestClass: {detect_data.get('BestClass')}")
-                logger.info(f"- Count: {detect_data.get('Count')}")
-                logger.info(f"- UpdatedAt: {detect_data.get('UpdatedAt')}")
-                best_class = detect_data.get('BestClass', '미확인')
-            else:
-                logger.info(f"detect_images 데이터 없음, images 컬렉션의 데이터 사용")
-                best_class = img.get('BestClass', '미확인')
+                    # ✅ Infos 배열이 있고, 최소 한 개의 요소가 있을 경우 bbox 값 가져오기
+                    infos = detection_data.get("Infos", [])
+                    if infos and isinstance(infos, list) and len(infos) > 0:
+                        bbox_data = infos[0].get("bbox", [])  # ✅ Infos[0] 내부의 bbox 추출
+                        new_bbox_data = infos[0].get("new_bbox", [])
 
-            result_image = {
-                "imageId": str(img['_id']),
-                "fileName": img.get('FileName', ''),
-                "imageUrl": generate_image_url(img.get('ThumnailPath')),
-                "uploadDate": img.get('DateTimeOriginal', {}).get('$date', ''),
-                "projectId": img.get('ProjectInfo', {}).get('ID', ''),
-                "projectName": img.get('ProjectInfo', {}).get('ProjectName', ''),
-                "serialNumber": img.get('SerialNumber', ''),
-                "speciesName": best_class,
-                "evtnum": img.get('evtnum', ''),
-                "exception_status": img.get('exception_status', ''),
-            }
-            logger.info(f"결과 데이터 생성 완료: {result_image}")
-            result_images.append(result_image)
+                result_images.append({
+                    "imageId": str(img['_id']),
+                    "fileName": img.get('FileName', ''),
+                    "imageUrl": generate_image_url(img.get('ThumnailPath')),
+                    "uploadDate": img.get('DateTimeOriginal', {}).get('$date', ''),
+                    "projectId": img.get('ProjectInfo', {}).get('ID', ''),
+                    "projectName": img.get('ProjectInfo', {}).get('ProjectName', ''),
+                    "serialNumber": img.get('SerialNumber', ''),
+                    "speciesName": species_name,  # ✅ AI 분석된 종 정보 반영
+                    "evtnum": img.get('evtnum', ''),
+                    "exception_status": img.get('exception_status', ''),
+                    "bbox": bbox_data,  # ✅ Infos[0]에서 가져온 bbox
+                    "new_bbox": new_bbox_data,  # ✅ Infos[0]에서 가져온 new_bbox
+                })
 
-        logger.info(f"\n=== 응답 데이터 구성 ===")
-        logger.info(f"총 처리된 이미지: {len(result_images)}개")
+
+        logger.info(f"\n=== 조회 결과 요약 ===")
+        logger.info(f"총 이미지 수: {total}")
         logger.info(f"현재 페이지: {page}")
-        logger.info(f"전체 페이지: {(total + per_page - 1) // per_page}")
+        logger.info(f"페이지당 이미지 수: {per_page}")
+        logger.info(f"처리된 이미지 수: {len(result_images)}")
 
-        response_data = {
+        return jsonify({
             "status": 200,
             "message": "일반 검수 이미지 조회 성공",
             "total": total,
@@ -868,15 +846,10 @@ def get_normal_inspection_images():
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page,
             "images": result_images
-        }
-        
-        logger.info("=== 일반검수 이미지 목록 조회 완료 ===\n")
-        return jsonify(response_data), 200
+        }), 200
 
     except Exception as e:
-        logger.error(f"\n=== 오류 발생 ===")
-        logger.error(f"오류 메시지: {str(e)}")
-        logger.error("스택 트레이스:", exc_info=True)
+        logger.error(f"🚨 서버 오류 발생: {str(e)}", exc_info=True)
         return jsonify({
             "status": 500,
             "message": f"서버 오류 발생: {str(e)}"
