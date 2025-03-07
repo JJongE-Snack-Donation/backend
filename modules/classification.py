@@ -1038,8 +1038,8 @@ def update_normal_inspection_bulk():
         if not update_dict:
             return standard_response("수정할 내용이 없습니다", status=400)
 
-        # 수정 시 자동으로 is_classified=True 설정
-        update_dict['is_classified'] = True
+        # 수정 시 자동으로 is_classified=False 설정
+        update_dict['is_classified'] = False
 
         # 디버깅용 출력
         print(f"수정할 이미지 ID 목록: {image_ids}")
@@ -1061,9 +1061,6 @@ def update_normal_inspection_bulk():
 
     except Exception as e:
         return handle_exception(e)
-
-
-
 
 @classification_bp.route('/inspection/exception/bulk-update', methods=['POST'])
 @jwt_required()
