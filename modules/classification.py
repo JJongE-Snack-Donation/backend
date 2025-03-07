@@ -205,7 +205,12 @@ def get_classified_image_details(image_id):
             "new_bbox": detection_data.get("new_bbox", []) if detection_data else [],
 
             # 🔹 `speciesName`을 `BestClass`와 동일하게 설정
-            "speciesName": detection_data.get("BestClass", "미확인"),
+            "speciesName": detection_data.get("BestClass", "미확인") if detection_data else "미확인",
+
+            # 🔹 종명, 개체수, 정확도 추가
+            "BestClass": detection_data.get("BestClass", "No Data") if detection_data else "No Data",
+            "Count": detection_data.get("Count", "No Data") if detection_data else "No Data",
+            "Accuracy": detection_data.get("Accuracy", "No Data") if detection_data else "No Data",
 
             # 🔹 같은 프로젝트 내 evtnum이 동일한 이미지 리스트 반환
             "related_images": [
