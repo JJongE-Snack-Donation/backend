@@ -76,54 +76,95 @@ def update_image(image_id, update_data, is_classified):
 @classification_bp.route('/images', methods=['GET'])
 @jwt_required()
 def list_images() -> Tuple[Dict[str, Any], int]:
-    """검수 완료된 이미지 목록 조회 API"""
+    """검수 완료된 이미지 목록 조회 API (ProjectInfo.ID + evtnum으로 그룹화)"""
     try:
-        is_classified = request.args.get('classified', default=None)
-        if is_classified is not None:
-            is_classified = is_classified.lower() == 'true'
+        logger.info("🔵 [API 요청] /images - 검수 완료된 이미지 목록 조회 요청")
 
+        # 요청 파라미터 읽기
+        project_id = request.args.get('project_id', None)
+        evtnum = request.args.get('evtnum', None)
         page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', PER_PAGE_DEFAULT))
+        per_page = int(request.args.get('per_page', 1000))  # 기본값 설정
 
-        # 기본 쿼리: 검수 완료된 이미지만 조회
+        # 필터링 조건 설정
         query: Dict[str, Any] = {'inspection_complete': True}
 
-        if is_classified is not None:
-            query['is_classified'] = is_classified
+        if project_id and evtnum:
+            query['ProjectInfo.ID'] = project_id
+            query['evtnum'] = int(evtnum)  # 특정 프로젝트 내 특정 이벤트만 필터링
+        elif evtnum:
+            query['evtnum'] = int(evtnum)  # 전체 프로젝트에서 특정 이벤트 조회
+        elif project_id:
+            query['ProjectInfo.ID'] = project_id  # 특정 프로젝트의 모든 이벤트 조회
 
-        total = db.images.count_documents(query)
-        images: List[Dict[str, Any]] = list(db.images.find(query)
-                     .skip((page - 1) * per_page)
-                     .limit(per_page))
 
-        # 이미지 데이터 처리
-        processed_images = []
-        for image in images:
-            # ObjectId를 문자열로 변환
-            image['_id'] = str(image['_id'])
-            
-            # 썸네일 경로를 URL로 변환
-            if 'ThumnailPath' in image:
-                image['ThumnailPath'] = generate_image_url(image['ThumnailPath'])
-            
-            # 원본 이미지 경로를 URL로 변환
-            if 'FilePath' in image:
-                image['FilePath'] = generate_image_url(image['FilePath'])
-                
-            processed_images.append(image)
+        logger.info(f"🔍 [쿼리 조건] {query}")
+
+        # MongoDB Aggregation 파이프라인
+        pipeline = [
+            {"$match": query},  # 올바르게 필터링된 쿼리 적용
+            {"$group": {
+                "_id": {"projectId": "$ProjectInfo.ID", "evtnum": "$evtnum"},
+                "images": {"$push": {
+                    "imageId": {"$toString": "$_id"},
+                    "fileName": "$FileName",
+                    "imageUrl": "$FilePath",
+                    "thumbnailUrl": "$ThumnailPath",
+                    "speciesName": "$BestClass",
+                    "uploadDate": "$UploadDate"
+                }},
+                "total_images": {"$sum": 1}
+            }},
+            {"$match": {"_id.projectId": project_id}},  # 특정 프로젝트 ID만 조회
+            {"$sort": {"_id.projectId": 1, "_id.evtnum": 1}},
+            {"$skip": (page - 1) * per_page},
+            {"$limit": per_page}
+        ]
+
+
+
+        logger.info(f"🛠 [MongoDB Aggregation] {pipeline}")
+
+        grouped_images = list(db.images.aggregate(pipeline))
+        logger.info(f"✅ [MongoDB 조회 완료] {len(grouped_images)}개의 그룹 조회됨")
+
+        # 결과 데이터 변환
+        processed_data = []
+        for group in grouped_images:
+            project_id = group["_id"].get("projectId", "UNKNOWN")  # 기본값 설정
+            evtnum = group["_id"].get("evtnum", -1)
+
+            processed_data.append({
+                "projectId": project_id,
+                "evtnum": evtnum,
+                "total_images": group["total_images"],
+                "images": group["images"]
+            })
+
+        # 전체 그룹 개수 조회
+        total_groups = db.images.aggregate([
+            {"$match": query},
+            {"$group": {"_id": {"projectId": "$ProjectInfo.ID", "evtnum": "$evtnum"}}},
+            {"$count": "total"}
+        ])
+        total_groups_count = next(total_groups, {}).get("total", 0)
+
+        logger.info(f"📊 [페이지네이션] 총 그룹 개수: {total_groups_count}, 현재 페이지: {page}, 페이지당 개수: {per_page}")
 
         return standard_response(
             "검수 완료된 이미지 목록 조회 성공",
-            data={'images': processed_images},
-            meta=pagination_meta(total, page, per_page)
+            data={"groups": processed_data},
+            meta=pagination_meta(total_groups_count, page, per_page)
         )
 
-    except ValueError:
+    except ValueError as ve:
+        logger.info(f"❌ [ValueError] 페이지 번호 변환 오류: {ve}")
         return handle_exception(
             Exception("페이지 번호가 유효하지 않습니다"),
             error_type="validation_error"
         )
     except Exception as e:
+        logger.info(f"❌ [Unhandled Exception] 내부 서버 오류 발생: {e}")
         return handle_exception(e, error_type="db_error")
 
 @classification_bp.route('/classified-images/<image_id>', methods=['GET'])
