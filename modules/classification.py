@@ -97,31 +97,27 @@ def list_images() -> Tuple[Dict[str, Any], int]:
         elif project_id:
             query['ProjectInfo.ID'] = project_id  # 특정 프로젝트의 모든 이벤트 조회
 
-
         logger.info(f"🔍 [쿼리 조건] {query}")
 
         # MongoDB Aggregation 파이프라인
         pipeline = [
-            {"$match": query},  # 올바르게 필터링된 쿼리 적용
+            {"$match": query},  
+            {"$sort": {"evtnum": 1, "FileName": 1}},  
             {"$group": {
-                "_id": {"projectId": "$ProjectInfo.ID", "evtnum": "$evtnum"},
+                "_id": {"evtnum": "$evtnum", "project_id": "$ProjectInfo.ID"},
                 "images": {"$push": {
                     "imageId": {"$toString": "$_id"},
                     "fileName": "$FileName",
                     "imageUrl": "$FilePath",
                     "thumbnailUrl": "$ThumnailPath",
-                    "speciesName": "$BestClass",
                     "uploadDate": "$UploadDate"
                 }},
                 "total_images": {"$sum": 1}
             }},
-            {"$match": {"_id.projectId": project_id}},  # 특정 프로젝트 ID만 조회
-            {"$sort": {"_id.projectId": 1, "_id.evtnum": 1}},
+            {"$sort": {"_id.evtnum": 1}},
             {"$skip": (page - 1) * per_page},
             {"$limit": per_page}
         ]
-
-
 
         logger.info(f"🛠 [MongoDB Aggregation] {pipeline}")
 
@@ -131,14 +127,24 @@ def list_images() -> Tuple[Dict[str, Any], int]:
         # 결과 데이터 변환
         processed_data = []
         for group in grouped_images:
-            project_id = group["_id"].get("projectId", "UNKNOWN")  # 기본값 설정
+            project_id = group["_id"].get("project_id", "UNKNOWN")  
             evtnum = group["_id"].get("evtnum", -1)
 
+            processed_images = []
+            for img in group["images"]:
+                processed_images.append({
+                    "imageId": img["imageId"],
+                    "fileName": img["fileName"],
+                    "imageUrl": generate_image_url(img["imageUrl"]),  
+                    "thumbnailUrl": generate_image_url(img["thumbnailUrl"]),  
+                    "uploadDate": img["uploadDate"]
+                })
+
             processed_data.append({
-                "projectId": project_id,
                 "evtnum": evtnum,
-                "total_images": group["total_images"],
-                "images": group["images"]
+                "images": processed_images,
+                "projectId": project_id,
+                "total_images": group["total_images"]
             })
 
         # 전체 그룹 개수 조회
@@ -151,21 +157,24 @@ def list_images() -> Tuple[Dict[str, Any], int]:
 
         logger.info(f"📊 [페이지네이션] 총 그룹 개수: {total_groups_count}, 현재 페이지: {page}, 페이지당 개수: {per_page}")
 
-        return standard_response(
-            "검수 완료된 이미지 목록 조회 성공",
-            data={"groups": processed_data},
-            meta=pagination_meta(total_groups_count, page, per_page)
-        )
+        return jsonify({
+            "status": 200,
+            "message": "검수 완료된 이미지 목록 조회 성공",
+            "data": {"groups": processed_data},
+            "meta": {
+                "page": page,
+                "per_page": per_page,
+                "total": total_groups_count,
+                "total_pages": (total_groups_count + per_page - 1) // per_page
+            }
+        }), 200
 
-    except ValueError as ve:
-        logger.info(f"❌ [ValueError] 페이지 번호 변환 오류: {ve}")
-        return handle_exception(
-            Exception("페이지 번호가 유효하지 않습니다"),
-            error_type="validation_error"
-        )
     except Exception as e:
-        logger.info(f"❌ [Unhandled Exception] 내부 서버 오류 발생: {e}")
-        return handle_exception(e, error_type="db_error")
+        logger.error(f"🚨 서버 오류 발생: {str(e)}", exc_info=True)
+        return jsonify({
+            "status": 500,
+            "message": f"서버 오류 발생: {str(e)}"
+        }), 500
 
 @classification_bp.route('/classified-images/<image_id>', methods=['GET'])
 @jwt_required()
